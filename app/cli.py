@@ -21,13 +21,16 @@ cli = typer.Typer(
 def doctor(as_json: bool = typer.Option(False, "--json", help="Emit the results as JSON.")) -> None:
     """Check host prerequisites."""
     checks = host.run_checks()
+    failed = [c for c in checks if not c.ok]
     if as_json:
-        payload = [{"name": c.name, "ok": c.ok, "detail": c.detail} for c in checks]
-        typer.echo(json.dumps({"ok": all(c.ok for c in checks), "checks": payload}, indent=2))
+        payload = [{"name": c.name, "ok": c.ok, "detail": c.detail, "hint": c.hint} for c in checks]
+        typer.echo(json.dumps({"ok": not failed, "checks": payload}, indent=2))
     else:
         for check in checks:
             typer.echo(f"{'ok  ' if check.ok else 'FAIL'}  {check.name:8s} {check.detail}")
-    if not all(c.ok for c in checks):
+        for hint in dict.fromkeys(c.hint for c in failed if c.hint):
+            typer.echo(f"\n{hint}")
+    if failed:
         raise typer.Exit(EXIT_PREREQUISITE)
 
 

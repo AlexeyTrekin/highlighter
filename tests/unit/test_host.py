@@ -22,14 +22,15 @@ def test_run_checks_covers_every_prerequisite():
     ("check", "binary"),
     [(host.check_ffmpeg, "ffmpeg"), (host.check_ffprobe, "ffprobe")],
 )
-def test_missing_binary_is_reported_with_an_actionable_detail(monkeypatch, check, binary):
+def test_missing_binary_is_reported_with_an_actionable_hint(monkeypatch, check, binary):
+    """The hint must name `ffmpeg-full`: the plain Homebrew formula omits libvidstab."""
     monkeypatch.setattr(host.shutil, "which", lambda _: None)
 
     result = check()
 
     assert result.name == binary
     assert not result.ok
-    assert "install ffmpeg" in result.detail
+    assert "ffmpeg-full" in result.hint
 
 
 def test_ffmpeg_without_libvidstab_fails_the_check(monkeypatch):
@@ -40,6 +41,7 @@ def test_ffmpeg_without_libvidstab_fails_the_check(monkeypatch):
 
     assert not result.ok
     assert host.STABILIZE_FILTER in result.detail
+    assert "ffmpeg-full" in result.hint
 
 
 def test_stabilize_filter_probe_survives_a_missing_binary(monkeypatch):

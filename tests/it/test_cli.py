@@ -54,17 +54,33 @@ def test_doctor_exit_code_distinguishes_a_missing_prerequisite(
     assert json.loads(result.stdout)["ok"] is ffmpeg_ok
 
 
-def test_doctor_human_output_marks_the_failing_check(monkeypatch):
+def test_doctor_human_output_marks_the_failing_check_and_prints_its_hint(monkeypatch):
     monkeypatch.setattr(
         host,
         "run_checks",
-        lambda: [host.Check("ffmpeg", False, "not found — install ffmpeg")],
+        lambda: [host.Check("ffmpeg", False, "not on PATH", "brew install ffmpeg-full")],
     )
 
     result = runner.invoke(cli, ["doctor"])
 
     assert "FAIL" in result.stdout
-    assert "install ffmpeg" in result.stdout
+    assert "brew install ffmpeg-full" in result.stdout
+
+
+def test_doctor_prints_a_shared_hint_once(monkeypatch):
+    """ffmpeg and ffprobe fail together and share a fix; repeating it is noise."""
+    monkeypatch.setattr(
+        host,
+        "run_checks",
+        lambda: [
+            host.Check("ffmpeg", False, "not on PATH", host.FFMPEG_HINT),
+            host.Check("ffprobe", False, "not on PATH", host.FFMPEG_HINT),
+        ],
+    )
+
+    result = runner.invoke(cli, ["doctor"])
+
+    assert result.stdout.count(host.FFMPEG_HINT) == 1
 
 
 @pytest.mark.needs_ffmpeg

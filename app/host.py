@@ -13,14 +13,23 @@ from dataclasses import dataclass
 MIN_PYTHON: tuple[int, int] = (3, 12)
 STABILIZE_FILTER: str = "vidstabtransform"
 
+# Homebrew's `ffmpeg` formula omits libvidstab; `ffmpeg-full` carries it but is keg-only, so
+# its bin directory has to be put on PATH by hand. Naming the right formula here is the
+# difference between a two-minute fix and installing the wrong ffmpeg twice.
+FFMPEG_HINT: str = (
+    "needs an ffmpeg built with libvidstab — on macOS: brew install ffmpeg-full, "
+    'then export PATH="$(brew --prefix)/opt/ffmpeg-full/bin:$PATH"'
+)
+
 
 @dataclass(frozen=True)
 class Check:
-    """Result of one prerequisite check."""
+    """Result of one prerequisite check, with the fix when it failed."""
 
     name: str
     ok: bool
     detail: str
+    hint: str = ""
 
 
 def check_python() -> Check:
@@ -34,16 +43,16 @@ def check_python() -> Check:
 def check_ffprobe() -> Check:
     path = shutil.which("ffprobe")
     if path is None:
-        return Check("ffprobe", False, "not found — install ffmpeg")
+        return Check("ffprobe", False, "not on PATH", FFMPEG_HINT)
     return Check("ffprobe", True, path)
 
 
 def check_ffmpeg() -> Check:
     path = shutil.which("ffmpeg")
     if path is None:
-        return Check("ffmpeg", False, "not found — install ffmpeg")
+        return Check("ffmpeg", False, "not on PATH", FFMPEG_HINT)
     if not has_stabilize_filter(path):
-        return Check("ffmpeg", False, f"{path} lacks the {STABILIZE_FILTER} filter (libvidstab)")
+        return Check("ffmpeg", False, f"{path} lacks the {STABILIZE_FILTER} filter", FFMPEG_HINT)
     return Check("ffmpeg", True, f"{path} (libvidstab present)")
 
 

@@ -20,6 +20,11 @@ message naming the fix.
 | `ffmpeg` with `libvidstab` | render, proxies | `ffmpeg -filters` lists `vidstabtransform` |
 | `ffprobe` | ingest | presence |
 
+`libvidstab` is not a given: Homebrew's `ffmpeg` formula omits it and only `ffmpeg-full`
+carries it, keg-only. A `doctor` failure MUST therefore name the formula and the PATH change,
+not merely say "install ffmpeg" — the obvious install produces an ffmpeg that fails at the
+render stage, minutes of analysis later.
+
 Tests that need `ffmpeg` MUST skip cleanly when it is absent, so the unit suite still runs on
 a bare machine.
 
