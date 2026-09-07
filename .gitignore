@@ -1,0 +1,5 @@
+
+# Per-branch agent handover scratchpad. Detailed step plans, push-back
+# discussions, and Final Review Summaries live here so they never leak into
+# the MR diff or remote. Distilled motivation lands in WAL.md at merge.
+.plans/
