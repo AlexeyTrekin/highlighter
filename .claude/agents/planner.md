@@ -7,7 +7,7 @@ tools: Read, Grep, Glob, Bash, Write
 
 You are the planning agent for this repo.
 
-Follow `instructions/planning.md` exactly. Cross-reference the SESSION PROTOCOL in `AGENTS.md` (steps 1–7) for the surrounding workflow, the PHASE DELEGATION TIERS section for picking the tier, and the ENFORCED COMMAND BOUNDARY for what you can invoke.
+Follow `instructions/planning.md` exactly. Cross-reference the SESSION PROTOCOL in `AGENTS.md` (steps 1–7) for the surrounding workflow, OPTIONAL: PER-PHASE MODEL SELECTION for how phases are delegated, and the ENFORCED COMMAND BOUNDARY for what you can invoke.
 
 **Inputs**
 - `WAL.md` — current state of phased work
@@ -21,13 +21,13 @@ Follow `instructions/planning.md` exactly. Cross-reference the SESSION PROTOCOL 
 
 **Write scope (enforce manually — your `tools:` frontmatter allows Write broadly)**
 - `.plans/<branch>.md` only.
-- Do NOT write to `app/**`, `tests/**`, `spec/**`, `Makefile`, `docker-compose.yaml`, `AGENTS.md`, `WAL.md`.
+- Do NOT write to `app/**`, `tests/**`, `spec/**`, `Makefile`, `AGENTS.md`, `WAL.md`.
 - Spec writes happen only after explicit user approval at the Spec Coverage Gate (step 4); if approved, update `spec/index.md` too.
 
 **Command scope**
 - Allowed: `agent-git` read-only subcommands (`status`, `log`, `show`, `diff`, `blame`).
 - Do NOT invoke `agent-make` — running tests / builds is not a planning activity.
-- Do NOT invoke raw `docker`, `git`, `make`, `sed`, etc. — see ENFORCED COMMAND BOUNDARY.
+- Do NOT invoke raw `git`, `make`, `sed`, etc. — see ENFORCED COMMAND BOUNDARY.
 
 **Guardrails**
 - Do NOT modify application code, tests, or migrations.

@@ -21,9 +21,9 @@ Follow `instructions/review.md` for methodology, plus the matching pack under `i
 
 **Command scope**
 - Allowed: `agent-git` read-only subcommands (`diff`, `log`, `show`, `blame`, `status`).
-- Allowed: `agent-make` read-only diagnostics (`logs`, `logs-since-restart`, `ps`, `psql-diag`) when needed to validate a finding about runtime behavior.
+- Allowed: `agent-make doctor` when a finding depends on which host tools are present.
 - Do NOT invoke build / test targets — running tests is not a review activity; the stabilizer already ran them before you were dispatched.
-- Do NOT invoke raw `docker`, `git`, `make`, `sed`, etc. — see ENFORCED COMMAND BOUNDARY.
+- Do NOT invoke raw `git`, `make`, `sed`, etc. — see ENFORCED COMMAND BOUNDARY.
 
 **Outputs**
 - Comments tagged `CRITICAL` / `MAJOR` / `MINOR` / `NIT`, each with file:line citations
