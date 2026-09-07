@@ -3,3 +3,5 @@
 # discussions, and Final Review Summaries live here so they never leak into
 # the MR diff or remote. Distilled motivation lands in WAL.md at merge.
 .plans/
+.data/
+.DS_Store
