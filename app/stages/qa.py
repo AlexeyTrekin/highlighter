@@ -6,6 +6,7 @@ A `fail` blocks calling the reel finished; warnings are reported, never suppress
 from app.manifests import qa as qa_schema
 from app.manifests.edl import Edl
 from app.manifests.music import Music, Section
+from app.manifests.project import Project
 from app.manifests.qa import Check, Qa
 from app.stages import music as music_stage
 from app.stages.render import ClipRender
@@ -17,8 +18,26 @@ BRIGHTNESS_JUMP: float = 12.0
 # three is the shortest run that frame-rate conversion cannot explain.
 FROZEN_TAIL_FRAMES: int = 2
 
+# Mean per-cell difference between two coarse thumbnails, on a 16-level scale, below which two
+# sources are the same recording. Measured over the 50-clip collection: re-encoding one file
+# the way a messenger would moves it 0.13 (crf 28 at 1280p) to 0.76 (crf 40 at 640p), while the
+# closest of the 1225 genuinely different pairs — all shot on one piste from one angle — sits at
+# 1.59, median 3.88. Anything in between separates them; 1.0 keeps a margin on both sides.
+DUPLICATE_TOLERANCE: float = 1.0
 
-def run(edl: Edl, music: Music, renders: list[ClipRender], requested_s: float) -> Qa:
+
+def run(
+    edl: Edl,
+    music: Music,
+    renders: list[ClipRender],
+    requested_s: float,
+    project: Project,
+) -> Qa:
+    """Every check this build runs, over one rendered reel.
+
+    `project` is required rather than optional: a caller that omits it loses `duplicate_footage`
+    from the report, and a check that silently disappears reads as a check that passed.
+    """
     checks: list[Check] = [
         *brightness_jump(renders),
         *frozen_tail(renders),
@@ -29,6 +48,7 @@ def run(edl: Edl, music: Music, renders: list[ClipRender], requested_s: float) -
         fade_target(edl),
         consecutive_setup(edl),
         duration(edl, requested_s),
+        duplicate_footage(edl, project),
         *not_yet_implemented(),
     ]
     return qa_schema.build(checks)
@@ -47,8 +67,66 @@ def not_yet_implemented() -> list[Check]:
             status="warn",
             detail=f"not implemented yet; arrives with {step}",
         )
-        for name, step in (("duplicate_footage", "WAL 3.1"), ("target_present", "WAL 5.1"))
+        for name, step in (("target_present", "WAL 5.1"),)
     ]
+
+
+def duplicate_footage(edl: Edl, project: Project) -> Check:
+    """Whether two clips in the reel come from the same recording uploaded twice.
+
+    Compared on coarse thumbnails rather than checksums: a clip re-uploaded through a messenger
+    is re-encoded, so every byte differs while the picture is identical. Identical footage in
+    two slots is exactly what a viewer notices and no other check would catch — sources are
+    distinct ids, so `consecutive_setup` sees nothing wrong.
+    """
+    used = list(dict.fromkeys(clip.source_id for clip in edl.clips))
+    signatures = {source.id: source.signature for source in project.sources if source.signature}
+    comparable = [source_id for source_id in used if source_id in signatures]
+
+    if len(used) < 2:
+        return Check(
+            name="duplicate_footage",
+            target="reel",
+            status="pass",
+            detail="the whole reel comes from one source; nothing can be duplicated",
+        )
+    if len(comparable) < len(used):
+        # A check that compared nothing must not report a clean bill of health: a project
+        # ingested before signatures existed, or a source whose mid-frame would not decode,
+        # cannot be told apart from one that was genuinely checked.
+        return Check(
+            name="duplicate_footage",
+            target=", ".join(sorted(set(used) - set(comparable))),
+            status="warn",
+            detail="no thumbnail recorded for these sources; re-run ingest to compare them",
+        )
+
+    pairs = [
+        f"{left} and {right}"
+        for index, left in enumerate(comparable)
+        for right in comparable[index + 1 :]
+        if _signatures_match(signatures[left], signatures[right])
+    ]
+    if not pairs:
+        return Check(
+            name="duplicate_footage",
+            target="reel",
+            status="pass",
+            detail=f"{len(used)} distinct sources in the reel",
+        )
+    return Check(
+        name="duplicate_footage",
+        target=", ".join(pairs),
+        status="warn",
+        detail="these sources look like the same recording uploaded twice",
+    )
+
+
+def _signatures_match(left: list[int], right: list[int]) -> bool:
+    if len(left) != len(right) or not left:
+        return False
+    differences = sum(abs(a - b) for a, b in zip(left, right, strict=True))
+    return differences / len(left) <= DUPLICATE_TOLERANCE
 
 
 def spike_frames(levels: list[float], threshold: float = BRIGHTNESS_JUMP) -> list[int]:

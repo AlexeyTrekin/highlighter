@@ -48,6 +48,19 @@ Per card, a dual-handle range over the source window with a scrub preview. The h
 where the bar-snapped result will land, so the user sees the cut they will actually get
 rather than the window they dragged. Writes `review.json.trims`.
 
+**A trim binds.** Nothing downstream may render outside it. A clip is normally anchored at its
+window end and reaches back the length of its slot — for a detected exchange that reach-back is
+the approach and is wanted, but a trim is a statement about which seconds to use, and reaching
+past its start puts back the footage the user just removed. A trim too short for any slot
+therefore makes the clip unusable, which is reported rather than silently applied.
+
+## When the pipeline cannot do what was asked
+
+A **keep** that does not reach the reel MUST be reported with the reason — trimmed below the
+shortest slot, dropped by a gate, or beaten to the last slot. A keep is the strongest signal
+the pipeline gets; one that quietly fails to appear is the worst outcome available, because a
+decision was made, the reel ignored it, and nothing said so.
+
 ### 4. Ordering
 
 Optional and skippable. Three modes:

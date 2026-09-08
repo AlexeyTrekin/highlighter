@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ project.id }} — review</title>
+  <link rel="stylesheet" href="/static/review.css">
+</head>
+<body{% if bar_s %} data-bar-s="{{ bar_s }}"{% endif %}>
+<header>
+  <div>
+    <h1>{{ project.id }}</h1>
+    <p class="muted">
+      {{ usable|length }} candidates ·
+      <span id="reviewed">{{ reviewed }}</span> ruled on ·
+      {{ dropped|length }} dropped by the pipeline
+    </p>
+  </div>
+  <div class="legend">
+    <span><kbd>1</kbd> drop</span>
+    <span><kbd>2</kbd> agent's call</span>
+    <span><kbd>3</kbd> keep</span>
+    <span><kbd>J</kbd>/<kbd>K</kbd> move</span>
+  </div>
+  <div>
+    <button id="complete" class="complete" {% if completed %}disabled{% endif %}>
+      {% if completed %}marked done{% else %}mark done{% endif %}
+    </button>
+    <p class="muted small">Nothing here is required — an untouched project still renders.</p>
+  </div>
+</header>
+
+<p id="status" class="status" hidden></p>
+
+<main id="grid">
+  {% for card in usable %}
+  <article class="card" data-id="{{ card.id }}" data-start="{{ card.start }}"
+           data-end="{{ card.end }}" tabindex="0">
+    <div class="media">
+      {% if card.has_proxy %}
+      <video src="/media/proxies/{{ card.id }}" muted loop playsinline preload="none"
+             {% if card.has_poster %}poster="/media/posters/{{ card.id }}"{% endif %}></video>
+      {% elif card.has_strip %}
+      <img src="/media/strips/{{ card.id }}" alt="filmstrip for {{ card.id }}">
+      {% else %}
+      <div class="missing">no preview built</div>
+      {% endif %}
+    </div>
+
+    <div class="meta">
+      <strong>{{ card.id }}</strong>
+      <span class="muted">{{ card.source_id }}</span>
+      <span class="muted">{{ "%.1f"|format(card.duration) }}s</span>
+      <span class="badge {{ card.material }}">{{ card.material.replace("_", " ") }}</span>
+      <span class="muted">score {{ "%.2f"|format(card.score) }}</span>
+    </div>
+    {% if card.reason %}<p class="reason">{{ card.reason }}</p>{% endif %}
+
+    <div class="verdicts" role="radiogroup" aria-label="verdict for {{ card.id }}">
+      {% for value, label in [("drop", "Drop"), ("agent", "Agent's call"), ("keep", "Keep")] %}
+      <button class="verdict {{ value }}{% if card.verdict == value %} on{% endif %}"
+              data-verdict="{{ value }}" role="radio"
+              aria-checked="{{ 'true' if card.verdict == value else 'false' }}">{{ label }}</button>
+      {% endfor %}
+    </div>
+
+    <details class="trim">
+      <summary>trim{% if card.trim %} (adjusted){% endif %}</summary>
+      <label>start
+        <input type="range" class="trim-start" min="{{ card.start }}" max="{{ card.end }}"
+               step="0.05" value="{{ card.trim.start if card.trim else card.start }}">
+      </label>
+      <label>end
+        <input type="range" class="trim-end" min="{{ card.start }}" max="{{ card.end }}"
+               step="0.05" value="{{ card.trim.end if card.trim else card.end }}">
+      </label>
+      <p class="trim-readout muted"></p>
+      <button class="reset-trim">reset</button>
+    </details>
+
+    <label class="note">note
+      <input type="text" class="note-input" value="{{ card.note }}"
+             placeholder="e.g. same setup as c012">
+    </label>
+  </article>
+  {% endfor %}
+</main>
+
+{% if dropped %}
+<details class="dropped">
+  <summary>{{ dropped|length }} dropped by the pipeline — expand to rescue one</summary>
+  <ul>
+    {% for card in dropped %}
+    <li data-id="{{ card.id }}">
+      <strong>{{ card.id }}</strong> <span class="muted">{{ card.source_id }}</span>
+      <span class="muted">{{ "%.1f"|format(card.duration) }}s</span>
+      <span class="flags">{{ card.flags|join(", ") }}</span>
+      {% if card.has_strip %}
+      <img src="/media/strips/{{ card.id }}" alt="filmstrip for {{ card.id }}" loading="lazy">
+      {% endif %}
+      <div class="verdicts" role="radiogroup" aria-label="verdict for {{ card.id }}">
+        {% for value, label in [("agent", "Leave dropped"), ("keep", "Rescue")] %}
+        <button class="verdict {{ value }}{% if card.verdict == value %} on{% endif %}"
+                data-verdict="{{ value }}" role="radio"
+                aria-checked="{{ 'true' if card.verdict == value else 'false' }}">{{ label }}</button>
+        {% endfor %}
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+</details>
+{% endif %}
+
+<script src="/static/review.js"></script>
+</body>
+</html>

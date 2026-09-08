@@ -7,6 +7,7 @@ are implemented for real, because they are what the prototype got wrong.
 """
 
 from app.manifests import music as music_schema
+from app.manifests import review as review_schema
 from app.manifests.candidates import (
     MIN_BARS,
     OPENING_MIN_BARS,
@@ -18,6 +19,7 @@ from app.manifests.candidates import (
 from app.manifests.edl import Clip, Crop, Edl, Output
 from app.manifests.music import Music
 from app.manifests.project import Project, source_by_id
+from app.manifests.review import Review
 from app.stages import music as music_stage
 
 STAGE = "director"
@@ -32,7 +34,30 @@ class NoUsableCandidates(RuntimeError):
     """Nothing survived the quality gates, so there is no reel to build."""
 
 
-def run(project: Project, music: Music, candidates: Candidates) -> Edl:
+def applied(candidates: Candidates, review: Review) -> Candidates:
+    """Candidates with the human's decisions folded in.
+
+    A dropped candidate keeps its place in the manifest and gains a flag, so the decision stays
+    auditable and reversible (`spec/002_manifests.md`). A trim replaces the window outright:
+    the user looked at the footage, which no measurement here did.
+    """
+    adjusted: list[Candidate] = []
+    for candidate in candidates.candidates:
+        clone = candidate.model_copy(deep=True)
+        if review_schema.is_dropped(review, clone.id):
+            clone.flags = [*clone.flags, "dropped_by_user"]
+        trim = review_schema.trim_for(review, clone.id)
+        if trim is not None:
+            clone.start, clone.end = trim.start, trim.end
+            clone.anchor = min(max(clone.anchor, trim.start), trim.end)
+            clone.trimmed = True
+        adjusted.append(clone)
+    return Candidates(candidates=adjusted)
+
+
+def run(
+    project: Project, music: Music, candidates: Candidates, review: Review | None = None
+) -> Edl:
     """Build the EDL.
 
     Deterministic by construction: candidates carry a total order and every later choice
@@ -40,7 +65,8 @@ def run(project: Project, music: Music, candidates: Candidates) -> Edl:
     (`spec/002_manifests.md`).
     """
     grid = music.grid
-    pool = ranked(project, music, candidates)
+    review = review or Review()
+    pool = ranked(project, music, applied(candidates, review), review)
     if not pool:
         raise NoUsableCandidates("every candidate was dropped by the quality gates")
 
@@ -80,16 +106,91 @@ def run(project: Project, music: Music, candidates: Candidates) -> Edl:
     )
 
 
-def ranked(project: Project, music: Music, candidates: Candidates) -> list[Candidate]:
+def unhonoured_keeps(
+    project: Project, music: Music, candidates: Candidates, review: Review, edl: Edl
+) -> list[tuple[str, str]]:
+    """Clips the user marked keep that did not reach the reel, and why.
+
+    A keep is the strongest signal the pipeline gets, and one can still be impossible — too
+    short for any slot this reel has, fight material where only the drumless opening would take
+    it, or simply beaten to the last slot. Letting it vanish silently is the worst outcome: the
+    user made a decision, the reel ignored it, and nothing said so (`spec/007_review_ui.md`).
+
+    The reason is worked out against the slot plan the reel was actually built from, so it names
+    the rule that excluded this clip rather than a plausible one.
+    """
+    placed = {clip.candidate_id for clip in edl.clips}
+    adjusted = {c.id: c for c in applied(candidates, review).candidates}
+    slots = plan_slots(music, bar_budget(music, project.options.duration_s))
+    drumless = music_stage.drumless_bars(music)
+
+    conflicts: list[tuple[str, str]] = []
+    for candidate_id in review.verdicts:
+        if not review_schema.is_kept(review, candidate_id) or candidate_id in placed:
+            continue
+        candidate = adjusted.get(candidate_id)
+        if candidate is None:
+            conflicts.append((candidate_id, "no such candidate"))
+        else:
+            conflicts.append(
+                (candidate_id, _why_unplaced(candidate, project, music, slots, drumless))
+            )
+    return sorted(conflicts)
+
+
+def _why_unplaced(
+    candidate: Candidate,
+    project: Project,
+    music: Music,
+    slots: list[tuple[int, int]],
+    drumless_bars: int,
+) -> str:
+    """Which rule kept this clip out, in terms of the reel that was actually built."""
+    if not fills(candidate, project, music, OPENING_MIN_BARS):
+        source = source_by_id(project, candidate.source_id)
+        length = min(candidate.end, source.duration_s) - candidate.start
+        after = " after trimming" if candidate.trimmed else ""
+        return (
+            f"only {length:.2f}s{after}; the shortest slot is "
+            f"{OPENING_MIN_BARS * music.grid.bar_s:.2f}s"
+        )
+    if any(
+        eligible_for(candidate, project, music, bars, slot, drumless_bars) for slot, bars in slots
+    ):
+        return "beaten to the last slot"
+    if any(fills(candidate, project, music, bars) for _, bars in slots):
+        # Long enough for a slot, but only for one the drums have not reached: the drumless
+        # opening takes no fight material, and this candidate is the one thing it cannot use.
+        return "long enough only for the drumless opening, which takes no fight material"
+    shortest = min(bars for _, bars in slots)
+    return (
+        f"fills none of this reel's slots; the shortest is {shortest} "
+        f"bar{'' if shortest == 1 else 's'} ({shortest * music.grid.bar_s:.2f}s)"
+    )
+
+
+def ranked(
+    project: Project, music: Music, candidates: Candidates, review: Review
+) -> list[Candidate]:
     """Usable candidates, best first, under a total order.
 
-    The id is the final tiebreak so equal scores never fall back on set or dict iteration
-    order, which would let clips move between runs for no reason the user can see.
+    A clip the user marked **keep** sorts ahead of everything the scorer liked. They watched
+    the footage; the score is a proxy for that and loses to it. The id is the final tiebreak so
+    equal scores never fall back on set or dict iteration order, which would let clips move
+    between runs for no reason the user can see.
+
+    A keep also overrides the quality gates, which is what rescuing a dropped candidate means
+    (`spec/007_review_ui.md`): the gates are a guess about what a viewer would reject, and a
+    viewer who has looked at the clip outranks them. The bar grid is not overridable — a window
+    too short for any slot still cannot be cut — and `unhonoured_keeps` reports that case.
     """
     keep = [
-        c for c in candidates.candidates if usable(c) and fills(c, project, music, OPENING_MIN_BARS)
+        c
+        for c in candidates.candidates
+        if (usable(c) or review_schema.is_kept(review, c.id))
+        and fills(c, project, music, OPENING_MIN_BARS)
     ]
-    return sorted(keep, key=lambda c: (-c.score, c.id))
+    return sorted(keep, key=lambda c: (not review_schema.is_kept(review, c.id), -c.score, c.id))
 
 
 def fills(candidate: Candidate, project: Project, music: Music, bars: int) -> bool:
@@ -101,12 +202,20 @@ def fills(candidate: Candidate, project: Project, music: Music, bars: int) -> bo
     contains, and reaching past its start renders footage no classifier looked at. A two-second
     stable stretch dropped into a two-bar slot brings four seconds to the screen, and the two
     that were never examined are most often the tail of the exchange that preceded it.
+
+    A window a human trimmed binds for the same reason and more strongly: they said which
+    seconds they wanted, and reaching outside them shows footage they took out.
+
+    Measured from where the clip will actually end — `to_clip` pulls the out point back to
+    end-of-file — because a window whose end is past EOF reaches back from the shorter point
+    and would otherwise land before its own start.
     """
     source = source_by_id(project, candidate.source_id)
     if max_bars(candidate, music.grid.bar_s, source.duration_s) < bars:
         return False
-    if candidate.origin == "calm":
-        return candidate.end - candidate.start >= bars * music.grid.bar_s - 1e-9
+    if candidate.origin == "calm" or candidate.trimmed:
+        available = min(candidate.end, source.duration_s) - candidate.start
+        return available >= bars * music.grid.bar_s - 1e-9
     return True
 
 
@@ -187,6 +296,26 @@ def _floor_for(piece_start: int) -> int:
     return OPENING_MIN_BARS if piece_start == 0 else MIN_BARS
 
 
+def eligible_for(
+    candidate: Candidate,
+    project: Project,
+    music: Music,
+    bars: int,
+    slot: int,
+    drumless_bars: int,
+) -> bool:
+    """Whether this slot could take this candidate at all.
+
+    The two constraints that bind, as against the preferences applied afterwards: the source
+    must fill the slot, and fight material may not appear before the drums arrive. Shared with
+    the conflict report, so what it tells the user about an unplaced keep is the rule that
+    actually excluded it.
+    """
+    return fills(candidate, project, music, bars) and not (
+        slot < drumless_bars and candidate.material == "action"
+    )
+
+
 def choose(
     pool: list[Candidate],
     project: Project,
@@ -203,9 +332,7 @@ def choose(
     appear before the drums arrive.
     """
     quiet = slot < drumless_bars
-    eligible = [
-        c for c in pool if fills(c, project, music, bars) and not (quiet and c.material == "action")
-    ]
+    eligible = [c for c in pool if eligible_for(c, project, music, bars, slot, drumless_bars)]
     if not eligible:
         return None
 
@@ -245,6 +372,8 @@ def choose(
         reason = f"highest remaining score ({pick.score:.3f}) that fills {bars} bars"
     if not varied:
         reason += "; no other source could fill this slot"
+    if pick.flags:
+        reason += f"; kept by the user despite {', '.join(pick.flags)}"
     return pick, reason
 
 

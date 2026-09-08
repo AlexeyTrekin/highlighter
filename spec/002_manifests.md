@@ -13,6 +13,7 @@ writes manifests; the video is a deterministic render of `edl.json`.
   identity.json         kit clusters and target assignment   (personal mode)
   music.json            grid, sections, chords, mood
   proxies/cNNN.mp4      360p review previews, one per candidate
+  posters/cNNN.jpg      first frame shown for a proxy, before it plays
   strips/cNNN.jpg       filmstrip contact sheets
   review.json           human verdicts, trims, ordering hints
   edl.json              THE CONTRACT
@@ -54,17 +55,21 @@ one is how an edit gets judged.
 | `mode` | `"event"` \| `"personal"` | see `001_goal.md` |
 | `target_hint` | str \| null | free-text kit description, e.g. `"black jacket, white trousers"` |
 | `options` | object | `duration_s`, `width`, `height`, `fps`, `max_candidates`, `weights` |
+| `music_path` | str \| null | absolute path to the track; null means procedural |
+| `sources` | array | one record per input file |
+| `stages` | object | stage name → `{status, started_at, finished_at, error}` |
 
 `max_candidates` bounds how many windows are **presented for review** (`007_review_ui.md`),
 not how many are generated. Capping generation would decide which footage is even considered
 by file order, which is arbitrary; the candidate stage examines every source and ranking
 decides what a human sees.
-| `music_path` | str \| null | absolute path to the track; null means procedural |
-| `sources` | array | one record per input file |
-| `stages` | object | stage name → `{status, started_at, finished_at, error}` |
 
 `sources[]` record: `id` (`vNN`), `original_name`, `path`, `duration_s`, `fps`, `width`,
-`height`, `shape` (`"short"` | `"long"`).
+`height`, `shape` (`"short"` | `"long"`), `signature`.
+
+`signature` is a coarse greyscale thumbnail of a mid-file frame, flattened. It exists so
+`duplicate_footage` (`008_render.md`) can tell that two sources are the same recording
+uploaded twice — a real hazard when clips arrive through a messenger.
 
 `shape` is decided at ingest from duration and MUST be recorded, because it selects the
 candidate-generation strategy (`003_pipeline.md`).

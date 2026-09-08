@@ -1,0 +1,157 @@
+:root {
+  color-scheme: light dark;
+  --bg: #14161a;
+  --card: #1e2127;
+  --line: #2e333c;
+  --text: #e6e8ec;
+  --muted: #9aa3b0;
+  --drop: #c2453e;
+  --agent: #6b7480;
+  --keep: #2f8f56;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 1rem 1.25rem 4rem;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+}
+
+header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem 2rem;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: .75rem;
+  border-bottom: 1px solid var(--line);
+}
+
+h1 { font-size: 1.1rem; margin: 0; }
+p { margin: .25rem 0; }
+.muted { color: var(--muted); }
+.small { font-size: .85em; }
+
+.legend { display: flex; gap: 1rem; color: var(--muted); }
+kbd {
+  padding: .1em .4em;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--card);
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+/* Autosave failures have to be visible: believing a verdict was recorded when it was not is
+   the one thing this page must never do. */
+.status {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin: .5rem 0;
+  padding: .5rem .75rem;
+  border-radius: 6px;
+  background: var(--drop);
+  color: #fff;
+}
+.status.ok { background: var(--keep); }
+
+#grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+  padding: .75rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+}
+.card:focus-visible, .card.current {
+  outline: 2px solid #4b8ed6;
+  outline-offset: 2px;
+}
+
+.media { aspect-ratio: 16 / 9; background: #000; border-radius: 6px; overflow: hidden; }
+.media video, .media img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.missing {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  color: var(--muted);
+}
+
+.meta { display: flex; flex-wrap: wrap; gap: .5rem; align-items: baseline; }
+.reason { margin: 0; color: var(--muted); font-size: .9em; }
+
+.badge {
+  padding: .05em .45em;
+  border-radius: 999px;
+  font-size: .8em;
+  background: var(--agent);
+  color: #fff;
+}
+.badge.action { background: #8a5a1f; }
+.badge.non_action { background: #34618a; }
+
+.verdicts { display: flex; gap: .35rem; }
+.verdict {
+  flex: 1;
+  padding: .4rem .25rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+.verdict:hover { border-color: var(--muted); }
+.verdict.on { color: #fff; border-color: transparent; }
+.verdict.drop.on { background: var(--drop); }
+.verdict.agent.on { background: var(--agent); }
+.verdict.keep.on { background: var(--keep); }
+
+.trim summary, .dropped summary { cursor: pointer; color: var(--muted); }
+.trim label { display: block; margin: .35rem 0; }
+.trim input[type="range"] { width: 100%; }
+.trim-readout { margin: 0; font-size: .85em; }
+
+.note { display: flex; gap: .5rem; align-items: center; color: var(--muted); }
+.note-input {
+  flex: 1;
+  padding: .3rem .45rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
+button.complete, button.reset-trim {
+  padding: .4rem .7rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+button:disabled { opacity: .55; cursor: default; }
+
+.dropped { margin-top: 2rem; border-top: 1px solid var(--line); padding-top: 1rem; }
+.dropped ul { list-style: none; padding: 0; display: grid; gap: .5rem; }
+.dropped li { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
+.dropped img { height: 46px; border-radius: 4px; }
+.dropped .verdicts { margin-left: auto; }
+.flags { color: var(--drop); font-size: .85em; }
+
+/* An input the file does not hold yet. The value stays on screen — discarding what someone
+   just typed or dragged is worse than showing it unsaved — so the outline is what says so. */
+.unsaved, .unsaved.note-input { outline: 2px solid var(--drop); outline-offset: 2px; }

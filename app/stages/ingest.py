@@ -7,6 +7,8 @@ refers to clips by that id.
 
 from pathlib import Path
 
+import cv2
+
 from app.manifests.project import Project, Source, classify_shape
 from app.video import ffmpeg
 
@@ -25,6 +27,35 @@ def collect(paths: list[Path]) -> list[Path]:
     return sorted(found, key=lambda p: p.name)
 
 
+SIGNATURE_W: int = 16
+SIGNATURE_H: int = 9
+SIGNATURE_LEVELS: int = 16
+
+
+def signature(path: Path, duration_s: float) -> list[int]:
+    """A coarse thumbnail of a mid-file frame, for spotting the same recording twice.
+
+    A checksum would not work: a clip re-uploaded through a messenger is re-encoded, and every
+    byte changes. What survives that is the picture at low resolution — the 16x9 downscale
+    averages away the compression noise — so the comparison happens there. Quantising to 16
+    levels afterwards bounds how far one cell can move, which is what makes a mean distance
+    comparable between pairs (`qa.DUPLICATE_TOLERANCE`). Taken from the middle of the file,
+    away from the title cards and black frames that cluster at the edges.
+    """
+    capture = cv2.VideoCapture(str(path))
+    try:
+        capture.set(cv2.CAP_PROP_POS_MSEC, duration_s * 500)
+        ok, frame = capture.read()
+    finally:
+        capture.release()
+    if not ok:
+        return []
+
+    small = cv2.resize(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), (SIGNATURE_W, SIGNATURE_H))
+    step = 256 // SIGNATURE_LEVELS
+    return [int(value) // step for value in small.flatten()]
+
+
 def describe(path: Path, source_id: str) -> Source:
     info = ffmpeg.probe(path)
     stream = ffmpeg.video_stream(info)
@@ -38,6 +69,7 @@ def describe(path: Path, source_id: str) -> Source:
         width=int(stream["width"]),
         height=int(stream["height"]),
         shape=classify_shape(duration),
+        signature=signature(path, duration),
     )
 
 

@@ -26,6 +26,11 @@ class Source(BaseModel):
     width: int
     height: int
     shape: Shape
+    # A coarse greyscale thumbnail of a mid-file frame, flattened. Clips arriving through a
+    # messenger are routinely uploaded twice under different names, and identical footage in
+    # two slots is the kind of thing a viewer notices immediately and a checksum never would,
+    # since re-encoding changes every byte.
+    signature: list[int] = Field(default_factory=list)
 
 
 class ScoringWeights(BaseModel):
