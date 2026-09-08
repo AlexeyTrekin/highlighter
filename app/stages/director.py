@@ -49,7 +49,7 @@ def applied(candidates: Candidates, review: Review) -> Candidates:
         trim = review_schema.trim_for(review, clone.id)
         if trim is not None:
             clone.start, clone.end = trim.start, trim.end
-            clone.anchor = min(clone.anchor, trim.end)
+            clone.anchor = min(max(clone.anchor, trim.start), trim.end)
             clone.trimmed = True
         adjusted.append(clone)
     return Candidates(candidates=adjusted)
@@ -111,13 +111,18 @@ def unhonoured_keeps(
 ) -> list[tuple[str, str]]:
     """Clips the user marked keep that did not reach the reel, and why.
 
-    A keep is the strongest signal the pipeline gets, and one can still be impossible — trimmed
-    below the shortest slot, dropped by a gate, or simply beaten to the last slot. Letting it
-    vanish silently is the worst outcome: the user made a decision, the reel ignored it, and
-    nothing said so (`spec/007_review_ui.md`).
+    A keep is the strongest signal the pipeline gets, and one can still be impossible — too
+    short for any slot this reel has, fight material where only the drumless opening would take
+    it, or simply beaten to the last slot. Letting it vanish silently is the worst outcome: the
+    user made a decision, the reel ignored it, and nothing said so (`spec/007_review_ui.md`).
+
+    The reason is worked out against the slot plan the reel was actually built from, so it names
+    the rule that excluded this clip rather than a plausible one.
     """
     placed = {clip.candidate_id for clip in edl.clips}
     adjusted = {c.id: c for c in applied(candidates, review).candidates}
+    slots = plan_slots(music, bar_budget(music, project.options.duration_s))
+    drumless = music_stage.drumless_bars(music)
 
     conflicts: list[tuple[str, str]] = []
     for candidate_id in review.verdicts:
@@ -126,20 +131,42 @@ def unhonoured_keeps(
         candidate = adjusted.get(candidate_id)
         if candidate is None:
             conflicts.append((candidate_id, "no such candidate"))
-        elif candidate.flags:
-            conflicts.append((candidate_id, f"dropped: {', '.join(candidate.flags)}"))
-        elif not fills(candidate, project, music, OPENING_MIN_BARS):
-            length = candidate.end - candidate.start
-            conflicts.append(
-                (
-                    candidate_id,
-                    f"only {length:.2f}s after trimming; the shortest slot is "
-                    f"{OPENING_MIN_BARS * music.grid.bar_s:.2f}s",
-                )
-            )
         else:
-            conflicts.append((candidate_id, "the reel ran out of slots"))
+            conflicts.append(
+                (candidate_id, _why_unplaced(candidate, project, music, slots, drumless))
+            )
     return sorted(conflicts)
+
+
+def _why_unplaced(
+    candidate: Candidate,
+    project: Project,
+    music: Music,
+    slots: list[tuple[int, int]],
+    drumless_bars: int,
+) -> str:
+    """Which rule kept this clip out, in terms of the reel that was actually built."""
+    if not fills(candidate, project, music, OPENING_MIN_BARS):
+        source = source_by_id(project, candidate.source_id)
+        length = min(candidate.end, source.duration_s) - candidate.start
+        after = " after trimming" if candidate.trimmed else ""
+        return (
+            f"only {length:.2f}s{after}; the shortest slot is "
+            f"{OPENING_MIN_BARS * music.grid.bar_s:.2f}s"
+        )
+    if any(
+        eligible_for(candidate, project, music, bars, slot, drumless_bars) for slot, bars in slots
+    ):
+        return "beaten to the last slot"
+    if any(fills(candidate, project, music, bars) for _, bars in slots):
+        # Long enough for a slot, but only for one the drums have not reached: the drumless
+        # opening takes no fight material, and this candidate is the one thing it cannot use.
+        return "long enough only for the drumless opening, which takes no fight material"
+    shortest = min(bars for _, bars in slots)
+    return (
+        f"fills none of this reel's slots; the shortest is {shortest} "
+        f"bar{'' if shortest == 1 else 's'} ({shortest * music.grid.bar_s:.2f}s)"
+    )
 
 
 def ranked(
@@ -151,9 +178,17 @@ def ranked(
     the footage; the score is a proxy for that and loses to it. The id is the final tiebreak so
     equal scores never fall back on set or dict iteration order, which would let clips move
     between runs for no reason the user can see.
+
+    A keep also overrides the quality gates, which is what rescuing a dropped candidate means
+    (`spec/007_review_ui.md`): the gates are a guess about what a viewer would reject, and a
+    viewer who has looked at the clip outranks them. The bar grid is not overridable — a window
+    too short for any slot still cannot be cut — and `unhonoured_keeps` reports that case.
     """
     keep = [
-        c for c in candidates.candidates if usable(c) and fills(c, project, music, OPENING_MIN_BARS)
+        c
+        for c in candidates.candidates
+        if (usable(c) or review_schema.is_kept(review, c.id))
+        and fills(c, project, music, OPENING_MIN_BARS)
     ]
     return sorted(keep, key=lambda c: (not review_schema.is_kept(review, c.id), -c.score, c.id))
 
@@ -170,12 +205,17 @@ def fills(candidate: Candidate, project: Project, music: Music, bars: int) -> bo
 
     A window a human trimmed binds for the same reason and more strongly: they said which
     seconds they wanted, and reaching outside them shows footage they took out.
+
+    Measured from where the clip will actually end — `to_clip` pulls the out point back to
+    end-of-file — because a window whose end is past EOF reaches back from the shorter point
+    and would otherwise land before its own start.
     """
     source = source_by_id(project, candidate.source_id)
     if max_bars(candidate, music.grid.bar_s, source.duration_s) < bars:
         return False
     if candidate.origin == "calm" or candidate.trimmed:
-        return candidate.end - candidate.start >= bars * music.grid.bar_s - 1e-9
+        available = min(candidate.end, source.duration_s) - candidate.start
+        return available >= bars * music.grid.bar_s - 1e-9
     return True
 
 
@@ -256,6 +296,26 @@ def _floor_for(piece_start: int) -> int:
     return OPENING_MIN_BARS if piece_start == 0 else MIN_BARS
 
 
+def eligible_for(
+    candidate: Candidate,
+    project: Project,
+    music: Music,
+    bars: int,
+    slot: int,
+    drumless_bars: int,
+) -> bool:
+    """Whether this slot could take this candidate at all.
+
+    The two constraints that bind, as against the preferences applied afterwards: the source
+    must fill the slot, and fight material may not appear before the drums arrive. Shared with
+    the conflict report, so what it tells the user about an unplaced keep is the rule that
+    actually excluded it.
+    """
+    return fills(candidate, project, music, bars) and not (
+        slot < drumless_bars and candidate.material == "action"
+    )
+
+
 def choose(
     pool: list[Candidate],
     project: Project,
@@ -272,9 +332,7 @@ def choose(
     appear before the drums arrive.
     """
     quiet = slot < drumless_bars
-    eligible = [
-        c for c in pool if fills(c, project, music, bars) and not (quiet and c.material == "action")
-    ]
+    eligible = [c for c in pool if eligible_for(c, project, music, bars, slot, drumless_bars)]
     if not eligible:
         return None
 
@@ -314,6 +372,8 @@ def choose(
         reason = f"highest remaining score ({pick.score:.3f}) that fills {bars} bars"
     if not varied:
         reason += "; no other source could fill this slot"
+    if pick.flags:
+        reason += f"; kept by the user despite {', '.join(pick.flags)}"
     return pick, reason
 
 

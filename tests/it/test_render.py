@@ -154,7 +154,7 @@ def test_the_reel_is_produced_and_qa_reads_it(tmp_path, source_video):
     edl = edl_for([clip_at(0, 1.0), clip_at(1, 5.0)])
 
     renders = render_stage.run(project, edl, out, reel)
-    report = qa_stage.run(edl, music_for(), renders, project.options.duration_s)
+    report = qa_stage.run(edl, music_for(), renders, project.options.duration_s, project)
 
     assert reel.exists() and reel.stat().st_size > 0
     statuses = {c.name: c.status for c in report.checks}

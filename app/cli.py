@@ -14,6 +14,7 @@ import uvicorn
 from app import __version__, assets, host, pipeline
 from app import project as project_store
 from app.manifests import base, qa
+from app.manifests import review as review_schema
 from app.manifests.edl import Edl
 from app.manifests.project import Options, Project
 from app.manifests.qa import Qa
@@ -24,6 +25,8 @@ from app.web import server
 EXIT_STAGE_FAILED = 1
 EXIT_BAD_INPUT = 2
 EXIT_PREREQUISITE = 3
+
+LOOPBACK = "127.0.0.1"
 
 cli = typer.Typer(
     add_completion=False, help="Build a music-cut highlight reel from tournament footage."
@@ -150,8 +153,10 @@ def run(
 
     typer.echo(f"ran: {', '.join(executed) or 'nothing (already done; use --force)'}")
     _warn_stale(directory, project, executed)
-    if "director" in executed:
-        _report_conflicts(directory, project)
+    # Reported against whatever edit currently stands, not only against one just built: a run
+    # that skipped the director is exactly when a keep made since is missing from the reel.
+    _report_conflicts(directory, project)
+    _report_unhonoured_order(directory)
 
     if "render" in executed:
         report = base.read(project_store.qa_path(directory), Qa)
@@ -242,12 +247,12 @@ def render(
 def review(
     directory: Path = typer.Argument(..., help="Project directory."),
     port: int = typer.Option(8420, "--port", help="Port to serve on."),
-    host: str = typer.Option("127.0.0.1", "--host", help="Interface to bind."),
 ) -> None:
     """Serve the review page and print its URL.
 
-    Blocks until interrupted — the one long-running command. It serves the machine's own
-    footage, so it binds to loopback by default (`spec/007_review_ui.md`).
+    Blocks until interrupted — the one long-running command. The interface is not an option:
+    this hands out an unauthenticated read API over the user's footage and an unauthenticated
+    write API over their decisions, so it binds to loopback (`spec/007_review_ui.md`).
     """
     _load(directory)
     try:
@@ -256,9 +261,9 @@ def review(
         typer.echo(str(error), err=True)
         raise typer.Exit(EXIT_PREREQUISITE) from error
 
-    typer.echo(f"http://{host}:{port}/")
+    typer.echo(f"http://{LOOPBACK}:{port}/")
     typer.echo("nothing here is required — an untouched project still renders")
-    uvicorn.run(server.create_app(directory), host=host, port=port, log_level="warning")
+    uvicorn.run(server.create_app(directory), host=LOOPBACK, port=port, log_level="warning")
 
 
 @cli.command()
@@ -340,8 +345,28 @@ def _report_conflicts(directory: Path, project: Project) -> None:
     A keep is the strongest signal the pipeline gets. One that quietly fails to appear is the
     worst outcome available: a decision was made, the reel ignored it, and nothing said so.
     """
-    for candidate_id, reason in pipeline.director_conflicts(directory, project):
+    try:
+        conflicts = pipeline.director_conflicts(directory, project)
+    except pipeline.StageBlocked:
+        # No edit to compare the keeps against yet; the run's own output already said so.
+        return
+    for candidate_id, reason in conflicts:
         typer.echo(f"warning: kept {candidate_id} is not in the reel — {reason}", err=True)
+
+
+def _report_unhonoured_order(directory: Path) -> None:
+    """Say when `review.json` pins positions this build does not place.
+
+    Ordering arrives with WAL 3.2. Until it does, a pin that is read, recorded and quietly
+    ignored is the same failure as a keep that never reaches the reel.
+    """
+    hints = review_schema.ordering_hints(pipeline.load_review(directory))
+    if hints:
+        typer.echo(
+            f"warning: review.json asks for {', '.join(hints)}; ordering hints are recorded "
+            f"but not honoured yet",
+            err=True,
+        )
 
 
 def _report_qa(report: Qa, directory: Path) -> None:

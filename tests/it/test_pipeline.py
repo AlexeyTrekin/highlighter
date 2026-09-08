@@ -13,6 +13,7 @@ from app.manifests import base
 from app.manifests.candidates import Candidates
 from app.manifests.edl import Edl
 from app.manifests.project import Options, Project
+from app.manifests.review import Review
 from app.stages import ingest as ingest_stage
 from app.stages import music as music_stage
 
@@ -168,6 +169,46 @@ def test_a_completed_stage_is_skipped_without_force(prepared):
 
     assert first == ["music"]
     assert second == []
+
+
+def test_a_review_made_after_the_edit_is_picked_up_by_the_next_run(prepared):
+    """Run, review, run is the sequence the whole review step exists for. Treating the director
+    as settled once it has run means the reel keeps the pre-review edit while the CLI reports
+    there was nothing to do — fifty decisions made and silently ignored."""
+    root, project = prepared
+    stages = ("analyze", "music", "candidates", "director")
+    pipeline.run(root, project, stages, force=False)
+    first = pipeline.load_edl(root)
+
+    dropped = first.clips[0].candidate_id
+    base.write(project_store.review_path(root), Review(verdicts={dropped: "drop"}))
+    executed = pipeline.run(root, project, stages, force=False)
+
+    assert executed == ["director"], "only the stage whose input changed"
+    assert dropped not in {clip.candidate_id for clip in pipeline.load_edl(root).clips}
+
+
+def test_a_settled_project_still_runs_nothing(prepared):
+    """The other half of the rule: an untouched review must not make every run re-cut."""
+    root, project = prepared
+    stages = ("analyze", "music", "candidates", "director")
+    pipeline.run(root, project, stages, force=False)
+
+    assert pipeline.run(root, project, stages, force=False) == []
+
+
+def test_a_stage_that_ran_reruns_the_ones_after_it(prepared):
+    """A stage whose input was just rewritten is not a completed stage: skipping it would hand
+    back a reel built from the previous EDL and call the run successful."""
+    root, project = prepared
+    stages = ("analyze", "music", "candidates", "director")
+    pipeline.run(root, project, stages, force=False)
+    project.stages.pop("candidates")
+    project_store.save(root, project)
+
+    executed = pipeline.run(root, project, ("candidates", "director"), force=False)
+
+    assert executed == ["candidates", "director"], "the director's input was just rewritten"
 
 
 def test_a_locked_project_refuses_a_second_writer(prepared):

@@ -6,7 +6,7 @@
   <title>{{ project.id }} — review</title>
   <link rel="stylesheet" href="/static/review.css">
 </head>
-<body>
+<body{% if bar_s %} data-bar-s="{{ bar_s }}"{% endif %}>
 <header>
   <div>
     <h1>{{ project.id }}</h1>
@@ -91,13 +91,20 @@
   <summary>{{ dropped|length }} dropped by the pipeline — expand to rescue one</summary>
   <ul>
     {% for card in dropped %}
-    <li>
+    <li data-id="{{ card.id }}">
       <strong>{{ card.id }}</strong> <span class="muted">{{ card.source_id }}</span>
       <span class="muted">{{ "%.1f"|format(card.duration) }}s</span>
       <span class="flags">{{ card.flags|join(", ") }}</span>
       {% if card.has_strip %}
       <img src="/media/strips/{{ card.id }}" alt="filmstrip for {{ card.id }}" loading="lazy">
       {% endif %}
+      <div class="verdicts" role="radiogroup" aria-label="verdict for {{ card.id }}">
+        {% for value, label in [("agent", "Leave dropped"), ("keep", "Rescue")] %}
+        <button class="verdict {{ value }}{% if card.verdict == value %} on{% endif %}"
+                data-verdict="{{ value }}" role="radio"
+                aria-checked="{{ 'true' if card.verdict == value else 'false' }}">{{ label }}</button>
+        {% endfor %}
+      </div>
     </li>
     {% endfor %}
   </ul>

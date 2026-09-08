@@ -37,6 +37,18 @@ def poster_path(root: Path, candidate_id: str) -> Path:
     return root / "posters" / f"{candidate_id}.jpg"
 
 
+def _write_image(target: Path, image: np.ndarray) -> None:
+    """Encode to a temp name and rename.
+
+    The resume path accepts any non-empty file, so an interrupted run that left half a JPEG
+    behind would be skipped forever and the page would show a broken image
+    (`spec/003_pipeline.md`).
+    """
+    partial = target.with_suffix(".part.jpg")
+    if cv2.imwrite(str(partial), image):
+        partial.replace(target)
+
+
 def build_proxy(source: Path, candidate: Candidate, target: Path) -> None:
     """A short, silent, low-resolution loop of the candidate's window.
 
@@ -90,7 +102,7 @@ def build_poster(source: Path, candidate: Candidate, target: Path) -> None:
         return
 
     height = round(POSTER_WIDTH * frame.shape[0] / frame.shape[1])
-    cv2.imwrite(str(target), cv2.resize(frame, (POSTER_WIDTH, height)))
+    _write_image(target, cv2.resize(frame, (POSTER_WIDTH, height)))
 
 
 def build_strip(source: Path, candidate: Candidate, target: Path) -> None:
@@ -117,7 +129,7 @@ def build_strip(source: Path, candidate: Candidate, target: Path) -> None:
 
     if not tiles:
         return
-    cv2.imwrite(str(target), np.hstack(tiles))
+    _write_image(target, np.hstack(tiles))
 
 
 def strips_only(project: Project, candidates: list[Candidate], root: Path) -> list[str]:
@@ -147,14 +159,21 @@ def run(project: Project, candidates: list[Candidate], root: Path) -> list[str]:
         source = Path(source_by_id(project, candidate.source_id).path)
         proxy = proxy_path(root, candidate.id)
         strip = strip_path(root, candidate.id)
-
         poster = poster_path(root, candidate.id)
 
+        # Counted once per candidate that gained anything, so the number the CLI prints means
+        # "clips whose previews were built" rather than "proxies", which would report zero for
+        # a resumed run that filled in every missing poster.
+        work = False
         if not proxy.exists() or proxy.stat().st_size == 0:
             build_proxy(source, candidate, proxy)
-            built.append(candidate.id)
+            work = True
         if not strip.exists() or strip.stat().st_size == 0:
             build_strip(source, candidate, strip)
+            work = True
         if not poster.exists() or poster.stat().st_size == 0:
             build_poster(source, candidate, poster)
+            work = True
+        if work:
+            built.append(candidate.id)
     return built

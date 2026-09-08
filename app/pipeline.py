@@ -4,6 +4,7 @@ Every stage is resumable at the unit of its output file, so a rerun is a no-op u
 (`spec/003_pipeline.md`).
 """
 
+import datetime
 from pathlib import Path
 
 from app import project as project_store
@@ -148,15 +149,42 @@ RUNNERS = {
 }
 
 
+def superseded(root: Path, project: Project, stage: str) -> bool:
+    """Whether a completed stage rests on an input rewritten after it finished.
+
+    Only the director has one: `review.json` is written by the review server, outside any run,
+    and a stage that finished before the human made their decisions has not been run against
+    them. Without this the sequence that the whole review step exists for — run, review, run —
+    reports "nothing (already done)" and delivers the pre-review edit.
+
+    `finished_at` is recorded to the second, so a review saved in the same second as the
+    director finished reads as newer. Re-cutting a deterministic EDL costs nothing; missing the
+    user's verdicts costs them the reel.
+    """
+    if stage != director_stage.STAGE:
+        return False
+    finished = project_store.stage_status(project, stage).finished_at
+    review = project_store.review_path(root)
+    if finished is None or not review.is_file():
+        return False
+    return review.stat().st_mtime > datetime.datetime.fromisoformat(finished).timestamp()
+
+
 def run(root: Path, project: Project, stages: tuple[str, ...], force: bool) -> list[str]:
     """Run `stages` in order, skipping completed ones unless forced.
+
+    A stage whose input was rewritten earlier in this same pass is not a completed stage, so it
+    runs again: skipping it would hand the user a reel built from the previous EDL and call the
+    run successful. That is narrower than invalidating downstream work in general, which
+    `--force` on a single stage still leaves to the warning in the CLI (`spec/003_pipeline.md`).
 
     Status is recorded before and after each stage so an interrupted run stays visible as
     `running` rather than being mistaken for one that never started.
     """
     executed: list[str] = []
     for stage in stages:
-        if project_store.is_done(project, stage) and not force:
+        settled = project_store.is_done(project, stage) and not superseded(root, project, stage)
+        if settled and not force and not executed:
             continue
         project_store.mark_running(root, project, stage)
         try:

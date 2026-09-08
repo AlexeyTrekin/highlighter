@@ -35,9 +35,12 @@ SIGNATURE_LEVELS: int = 16
 def signature(path: Path, duration_s: float) -> list[int]:
     """A coarse thumbnail of a mid-file frame, for spotting the same recording twice.
 
-    Quantised hard and taken from the middle of the file, so it survives re-encoding and
-    ignores the title cards and black frames that cluster at the edges. A checksum would not
-    work: a clip re-uploaded through a messenger is re-encoded, and every byte changes.
+    A checksum would not work: a clip re-uploaded through a messenger is re-encoded, and every
+    byte changes. What survives that is the picture at low resolution — the 16x9 downscale
+    averages away the compression noise — so the comparison happens there. Quantising to 16
+    levels afterwards bounds how far one cell can move, which is what makes a mean distance
+    comparable between pairs (`qa.DUPLICATE_TOLERANCE`). Taken from the middle of the file,
+    away from the title cards and black frames that cluster at the edges.
     """
     capture = cv2.VideoCapture(str(path))
     try:

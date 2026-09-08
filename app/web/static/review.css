@@ -149,4 +149,9 @@ button:disabled { opacity: .55; cursor: default; }
 .dropped ul { list-style: none; padding: 0; display: grid; gap: .5rem; }
 .dropped li { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
 .dropped img { height: 46px; border-radius: 4px; }
+.dropped .verdicts { margin-left: auto; }
 .flags { color: var(--drop); font-size: .85em; }
+
+/* An input the file does not hold yet. The value stays on screen — discarding what someone
+   just typed or dragged is worse than showing it unsaved — so the outline is what says so. */
+.unsaved, .unsaved.note-input { outline: 2px solid var(--drop); outline-offset: 2px; }

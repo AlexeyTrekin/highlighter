@@ -19,9 +19,11 @@ BRIGHTNESS_JUMP: float = 12.0
 FROZEN_TAIL_FRAMES: int = 2
 
 # Mean per-cell difference between two coarse thumbnails, on a 16-level scale, below which two
-# sources are the same recording. Loose enough to survive a re-encode, tight enough that two
-# clips of the same piste from the same angle still read as different.
-DUPLICATE_TOLERANCE: float = 0.6
+# sources are the same recording. Measured over the 50-clip collection: re-encoding one file
+# the way a messenger would moves it 0.13 (crf 28 at 1280p) to 0.76 (crf 40 at 640p), while the
+# closest of the 1225 genuinely different pairs — all shot on one piste from one angle — sits at
+# 1.59, median 3.88. Anything in between separates them; 1.0 keeps a margin on both sides.
+DUPLICATE_TOLERANCE: float = 1.0
 
 
 def run(
@@ -29,8 +31,13 @@ def run(
     music: Music,
     renders: list[ClipRender],
     requested_s: float,
-    project: Project | None = None,
+    project: Project,
 ) -> Qa:
+    """Every check this build runs, over one rendered reel.
+
+    `project` is required rather than optional: a caller that omits it loses `duplicate_footage`
+    from the report, and a check that silently disappears reads as a check that passed.
+    """
     checks: list[Check] = [
         *brightness_jump(renders),
         *frozen_tail(renders),
@@ -41,7 +48,7 @@ def run(
         fade_target(edl),
         consecutive_setup(edl),
         duration(edl, requested_s),
-        *([duplicate_footage(edl, project)] if project is not None else []),
+        duplicate_footage(edl, project),
         *not_yet_implemented(),
     ]
     return qa_schema.build(checks)
@@ -74,14 +81,31 @@ def duplicate_footage(edl: Edl, project: Project) -> Check:
     """
     used = list(dict.fromkeys(clip.source_id for clip in edl.clips))
     signatures = {source.id: source.signature for source in project.sources if source.signature}
+    comparable = [source_id for source_id in used if source_id in signatures]
+
+    if len(used) < 2:
+        return Check(
+            name="duplicate_footage",
+            target="reel",
+            status="pass",
+            detail="the whole reel comes from one source; nothing can be duplicated",
+        )
+    if len(comparable) < len(used):
+        # A check that compared nothing must not report a clean bill of health: a project
+        # ingested before signatures existed, or a source whose mid-frame would not decode,
+        # cannot be told apart from one that was genuinely checked.
+        return Check(
+            name="duplicate_footage",
+            target=", ".join(sorted(set(used) - set(comparable))),
+            status="warn",
+            detail="no thumbnail recorded for these sources; re-run ingest to compare them",
+        )
 
     pairs = [
         f"{left} and {right}"
-        for index, left in enumerate(used)
-        for right in used[index + 1 :]
-        if left in signatures
-        and right in signatures
-        and _signatures_match(signatures[left], signatures[right])
+        for index, left in enumerate(comparable)
+        for right in comparable[index + 1 :]
+        if _signatures_match(signatures[left], signatures[right])
     ]
     if not pairs:
         return Check(

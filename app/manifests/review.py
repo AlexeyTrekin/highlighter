@@ -24,11 +24,30 @@ class Trim(BaseModel):
     end: float
 
 
+class Order(BaseModel):
+    """Ordering hints (`spec/002_manifests.md`).
+
+    Carried but not yet acted on: the drag-to-sequence UI and the director side that makes a
+    pinned position binding arrive with WAL 3.2. Present now because the field is part of the
+    documented manifest, and a `review.json` that names it must not make the project
+    unopenable. `hlreel run` says when hints are set and ignored, so no pin fails silently.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["auto", "strict", "weighted"] = "auto"
+    sequence: list[str] = Field(default_factory=list)
+    opening: list[str] = Field(default_factory=list)
+    ending: list[str] = Field(default_factory=list)
+    weights: dict[str, float] = Field(default_factory=dict)
+
+
 class Review(Manifest):
     stage: str = "review"
     verdicts: dict[str, Verdict] = Field(default_factory=dict)
     trims: dict[str, Trim] = Field(default_factory=dict)
     notes: dict[str, str] = Field(default_factory=dict)
+    order: Order = Field(default_factory=Order)
     completed: bool = False
     updated_at: str | None = None
 
@@ -52,6 +71,21 @@ def is_kept(review: Review, candidate_id: str) -> bool:
 
 def trim_for(review: Review, candidate_id: str) -> Trim | None:
     return review.trims.get(candidate_id)
+
+
+def ordering_hints(review: Review) -> list[str]:
+    """Which parts of `review.json.order` ask for something, in the user's words.
+
+    Empty for the default `auto` with nothing pinned, which is what an untouched project has.
+    """
+    named = [
+        f"{len(getattr(review.order, field))} {field}"
+        for field in ("sequence", "opening", "ending", "weights")
+        if getattr(review.order, field)
+    ]
+    if review.order.mode != "auto":
+        named.insert(0, f"mode {review.order.mode}")
+    return named
 
 
 def touched(review: Review) -> int:

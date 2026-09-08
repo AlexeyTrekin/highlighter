@@ -5,6 +5,8 @@ It records what the human did and decides nothing itself (`spec/007_review_ui.md
 """
 
 import datetime
+import threading
+from collections.abc import Callable
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -17,13 +19,19 @@ from app import pipeline
 from app import project as project_store
 from app.manifests import base
 from app.manifests.candidates import Candidate
-from app.manifests.review import Review, Trim, Verdict, verdict_for
+from app.manifests.review import DEFAULT_VERDICT, Review, Trim, Verdict, verdict_for
 from app.stages import proxies as proxies_stage
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 STATIC_DIR = Path(__file__).parent / "static"
 
 MEDIA_KINDS = {"proxies": ".mp4", "strips": ".jpg", "posters": ".jpg"}
+
+# The page saves per keystroke and per slider move, and a browser runs several of those at
+# once. Every write is a read-modify-write of one file, so without this two overlapping saves
+# both read the same `review.json`, the second wins, and the first decision is gone while the
+# page shows both as saved — the one failure `spec/007_review_ui.md` rules out.
+_WRITE_LOCK = threading.Lock()
 
 
 class VerdictUpdate(BaseModel):
@@ -53,6 +61,14 @@ def save_review(root: Path, review: Review) -> None:
     base.write(review_path(root), review)
 
 
+def edit_review(root: Path, mutate: Callable[[Review], None]) -> None:
+    """Apply one change to `review.json`, serialised against every other change."""
+    with _WRITE_LOCK:
+        review = load_review(root)
+        mutate(review)
+        save_review(root, review)
+
+
 def create_app(root: Path) -> FastAPI:
     """Build the server for one project.
 
@@ -77,7 +93,11 @@ def create_app(root: Path) -> FastAPI:
                 "project": project,
                 "usable": [_card(c, review, root) for c in usable],
                 "dropped": [_card(c, review, root) for c in dropped],
-                "reviewed": sum(1 for c in usable if c.id in review.verdicts),
+                # Counted the same way the page recounts it after a click, and the same way
+                # `review.touched` reports it to the agent: a candidate explicitly set back to
+                # "agent's call" has not been ruled on.
+                "reviewed": sum(1 for c in usable if verdict_for(review, c.id) != DEFAULT_VERDICT),
+                "bar_s": _bar_s(root),
                 "completed": review.completed,
             },
         )
@@ -102,43 +122,65 @@ def create_app(root: Path) -> FastAPI:
 
     @app.put("/api/verdict/{candidate_id}")
     def set_verdict(candidate_id: str, update: VerdictUpdate):
-        review = load_review(root)
-        review.verdicts[_known(root, candidate_id)] = update.verdict
-        save_review(root, review)
+        identifier = _known(root, candidate_id).id
+
+        def apply(review: Review) -> None:
+            review.verdicts[identifier] = update.verdict
+
+        edit_review(root, apply)
         return {"ok": True, "verdict": update.verdict}
 
     @app.put("/api/trim/{candidate_id}")
     def set_trim(candidate_id: str, update: TrimUpdate):
+        """Narrow a candidate's window.
+
+        Bounded by the window itself: a trim binds on everything downstream
+        (`spec/007_review_ui.md`), so one that reaches outside the examined footage would give
+        the renderer seconds nothing has looked at while reading as the user's own choice.
+        """
+        candidate = _known(root, candidate_id)
         if update.end <= update.start:
             raise HTTPException(status_code=400, detail="trim end must follow its start")
-        review = load_review(root)
-        review.trims[_known(root, candidate_id)] = Trim(start=update.start, end=update.end)
-        save_review(root, review)
+        if update.start < candidate.start - 1e-6 or update.end > candidate.end + 1e-6:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"trim must stay inside the window {candidate.start:.2f}-{candidate.end:.2f}s"
+                ),
+            )
+
+        def apply(review: Review) -> None:
+            review.trims[candidate.id] = Trim(start=update.start, end=update.end)
+
+        edit_review(root, apply)
         return {"ok": True}
 
     @app.delete("/api/trim/{candidate_id}")
     def clear_trim(candidate_id: str):
-        review = load_review(root)
-        review.trims.pop(_known(root, candidate_id), None)
-        save_review(root, review)
+        identifier = _known(root, candidate_id).id
+
+        def apply(review: Review) -> None:
+            review.trims.pop(identifier, None)
+
+        edit_review(root, apply)
         return {"ok": True}
 
     @app.put("/api/note/{candidate_id}")
     def set_note(candidate_id: str, update: NoteUpdate):
-        review = load_review(root)
-        identifier = _known(root, candidate_id)
-        if update.note.strip():
-            review.notes[identifier] = update.note.strip()
-        else:
-            review.notes.pop(identifier, None)
-        save_review(root, review)
+        identifier = _known(root, candidate_id).id
+
+        def apply(review: Review) -> None:
+            if update.note.strip():
+                review.notes[identifier] = update.note.strip()
+            else:
+                review.notes.pop(identifier, None)
+
+        edit_review(root, apply)
         return {"ok": True}
 
     @app.post("/api/complete")
     def complete():
-        review = load_review(root)
-        review.completed = True
-        save_review(root, review)
+        edit_review(root, lambda review: setattr(review, "completed", True))
         return {"ok": True}
 
     return app
@@ -167,19 +209,31 @@ def _card(candidate: Candidate, review: Review, root: Path) -> dict:
     }
 
 
+def _bar_s(root: Path) -> float | None:
+    """The bar length the trim handles snap to, or nothing before the music stage has run."""
+    try:
+        return pipeline.load_music(root).grid.bar_s
+    except pipeline.StageBlocked:
+        return None
+
+
+# `cNNN`, with no ceiling on N: a project with a thousand candidates numbers them `c1000`, and
+# a length test would start refusing every write for those. ASCII digits only — `str.isdigit`
+# also accepts `²` and `٠`, which are not path separators but have no business here either.
 def _is_candidate_id(value: str) -> bool:
-    return len(value) == 4 and value[0] == "c" and value[1:].isdigit()
+    digits = value[1:]
+    return 1 < len(value) <= 8 and value[0] == "c" and digits.isascii() and digits.isdigit()
 
 
-def _known(root: Path, candidate_id: str) -> str:
-    """Reject a verdict on a candidate that does not exist.
+def _known(root: Path, candidate_id: str) -> Candidate:
+    """The candidate this request names, or a 404.
 
-    Otherwise a typo silently accumulates entries the director will never look at, and
-    `review.json` stops describing the project it belongs to.
+    A verdict on a candidate that does not exist would silently accumulate entries the director
+    never looks at, and `review.json` would stop describing the project it belongs to.
     """
     if not _is_candidate_id(candidate_id):
         raise HTTPException(status_code=404, detail="unknown candidate")
-    known = {c.id for c in pipeline.load_candidates(root).candidates}
-    if candidate_id not in known:
+    found = {c.id: c for c in pipeline.load_candidates(root).candidates}.get(candidate_id)
+    if found is None:
         raise HTTPException(status_code=404, detail="unknown candidate")
-    return candidate_id
+    return found

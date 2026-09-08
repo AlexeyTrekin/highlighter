@@ -6,6 +6,7 @@ import pytest
 
 from app.manifests.edl import Clip, Crop, Edl, Output
 from app.manifests.music import Bar, Grid, Music, Section
+from app.manifests.project import Project, Source
 from app.manifests.qa import overall
 from app.stages import qa
 from app.stages.render import ClipRender
@@ -206,6 +207,86 @@ def test_consecutive_setup_warns_on_adjacent_clips_from_one_source():
     result = qa.consecutive_setup(edl_of([clip(0, source="v01"), clip(2, source="v01")]))
 
     assert result.status == "warn"
+
+
+def project_of(signatures: dict[str, list[int]]) -> Project:
+    return Project(
+        id="p",
+        created_at="2026-09-08T00:00:00+00:00",
+        sources=[
+            Source(
+                id=source_id,
+                original_name=f"{source_id}.mp4",
+                path=f"/tmp/{source_id}.mp4",
+                duration_s=20.0,
+                fps=30.0,
+                width=1280,
+                height=720,
+                shape="short",
+                signature=signature,
+            )
+            for source_id, signature in signatures.items()
+        ],
+    )
+
+
+CELLS = 16 * 9
+
+
+def signature_pair(mean_difference: float) -> tuple[list[int], list[int]]:
+    """Two signatures a given mean per-cell distance apart, in ingest's 16-level shape."""
+    base = [8] * CELLS
+    total = round(mean_difference * CELLS)
+    other = [8 + total // CELLS + (1 if index < total % CELLS else 0) for index in range(CELLS)]
+    return base, other
+
+
+@pytest.mark.parametrize(
+    ("distance", "duplicate", "what"),
+    [
+        # Measured over the 50-clip collection: re-encoding one file moves its signature this
+        # far, while genuinely different bouts — one piste, one camera angle — stay further.
+        (0.132, True, "a light re-encode, crf 28 at 1280p"),
+        (0.757, True, "a messenger-grade re-encode, crf 40 at 640p"),
+        (1.590, False, "the closest of the 1225 distinct pairs"),
+        (3.875, False, "the median distinct pair"),
+    ],
+)
+def test_the_tolerance_separates_a_re_encode_from_a_different_bout(distance, duplicate, what):
+    """A checksum cannot do this job — a clip re-uploaded through a messenger is re-encoded and
+    every byte differs — so the whole check rests on this threshold sitting between the two."""
+    left, right = signature_pair(distance)
+    reel = edl_of([clip(0, source="v01"), clip(2, source="v02")])
+    project = project_of({"v01": left, "v02": right})
+
+    assert (qa.duplicate_footage(reel, project).status == "warn") is duplicate, what
+
+
+def test_duplicate_footage_names_the_pair():
+    left, right = signature_pair(0.5)
+    reel = edl_of([clip(0, source="v01"), clip(2, source="v02")])
+
+    result = qa.duplicate_footage(reel, project_of({"v01": left, "v02": right}))
+
+    assert result.target == "v01 and v02"
+
+
+def test_duplicate_footage_warns_when_it_could_not_compare():
+    """A check that compared nothing must not report a clean bill of health — a project
+    ingested before signatures existed would read as verified."""
+    reel = edl_of([clip(0, source="v01"), clip(2, source="v02")])
+    project = project_of({"v01": signature_pair(0.0)[0], "v02": []})
+
+    result = qa.duplicate_footage(reel, project)
+
+    assert result.status == "warn"
+    assert result.target == "v02"
+
+
+def test_a_single_source_reel_cannot_hold_a_duplicate():
+    reel = edl_of([clip(0, source="v01"), clip(2, source="v01")])
+
+    assert qa.duplicate_footage(reel, project_of({"v01": []})).status == "pass"
 
 
 @pytest.mark.parametrize(

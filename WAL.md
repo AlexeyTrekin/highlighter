@@ -196,7 +196,34 @@ decision was made, the reel ignored it, and nothing said so.
 
 `duplicate_footage` became implementable here: it needed a coarse per-source thumbnail, which
 nothing recorded. A checksum would not do — a clip re-uploaded through a messenger is
-re-encoded, so every byte differs while the picture is identical.
+re-encoded, so every byte differs while the picture is identical. Its tolerance was guessed at
+0.6 and is now measured: re-encoding a real source moves its signature 0.13 (crf 28 at 1280p)
+to 0.76 (crf 40 at 640p), while the closest of the 1225 genuinely different pairs — one piste,
+one camera — sits at 1.59, median 3.88. The guess would have missed a messenger re-upload,
+which is the only case the check exists for.
+
+**An autosaved page is a concurrent writer.** Verdicts save on the keystroke and notes and
+trims on a debounce, so a browser has several saves in flight at once; each was an
+unsynchronised read-modify-write of one file. Atomic writes prevent a torn `review.json` and do
+nothing about a lost update — the second writer wins, the first decision is gone, and both
+requests return 200.
+
+**Recording a decision is not the same as acting on it.** After a review, `hlreel run` reported
+"nothing (already done)" and left the pre-review edit in place: nothing marked the director
+stale when `review.json` changed, and the keep-conflict report was gated on the director having
+just run — so it stayed silent in exactly the case it was written for. Fifty decisions made and
+silently ignored is a worse failure than any bad cut.
+
+**A keyboard shortcut needs to know what the eye is on.** `current` followed only J/K and a
+`focus` listener, and `focus` does not bubble — so clicking a verdict button or hovering a clip
+left it pointing at a card scrolled off-screen, and the next keystroke overwrote that card's
+verdict with no feedback anywhere.
+
+**A conflict report has to name the rule that actually applied.** "The reel ran out of slots"
+was reported for keeps that no slot could have taken — a 1.3 s fight clip in a reel whose only
+one-bar slot is the drumless opening. The reason is now derived from the slot plan the reel was
+built from, sharing its eligibility test with the director, so it cannot describe a competition
+that never happened.
 
 ### 3.2 Ordering: strict sequence, weights, opening and ending buckets
 [ ] Drag-to-sequence UI; pinned positions binding on the director; conflicts surfaced rather
