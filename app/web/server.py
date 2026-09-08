@@ -189,7 +189,11 @@ def create_app(root: Path) -> FastAPI:
         in the middle failed.
         """
         known = {c.id for c in pipeline.load_candidates(root).candidates}
-        unknown = sorted(set(review_schema.pins(update)) - known)
+        # Every field, not only the ones this mode reads: an id the active mode ignores is still
+        # written to `review.json`, still reaches the page, and still becomes live the moment
+        # the user switches mode.
+        named = {*update.sequence, *update.opening, *update.ending, *update.weights}
+        unknown = sorted(named - known)
         if unknown:
             raise HTTPException(status_code=404, detail=f"unknown candidate {unknown[0]}")
         out_of_range = sorted(

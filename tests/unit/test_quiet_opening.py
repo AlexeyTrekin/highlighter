@@ -7,22 +7,8 @@ full energy (`spec/006_music.md`).
 
 import pytest
 
-from app.manifests.music import Bar, Grid, Music, Section
+from app.manifests.music import Section
 from app.stages import music as music_stage
-
-BAR_S = 1.9969
-
-
-def music_of(sections: list[Section]) -> Music:
-    return Music(
-        source="track",
-        duration_s=60.0,
-        grid=Grid(bpm=120.19, beat_s=BAR_S / 4, bar_s=BAR_S, first_downbeat_s=0.186),
-        sections=sections,
-        bars=[
-            Bar(index=i, t=i * BAR_S, rms=1.0, low_energy=1.0, high_energy=0.1) for i in range(31)
-        ],
-    )
 
 
 def test_the_reference_track_gives_the_same_six_bars_the_drum_entry_marked():
@@ -34,7 +20,7 @@ def test_the_reference_track_gives_the_same_six_bars_the_drum_entry_marked():
         Section(name="outro", level="major", bar_start=28, bar_end=30, energy=1.8516),
     ]
 
-    assert music_stage.quiet_opening_bars(music_of(reference)) == 6
+    assert music_stage.quiet_opening_bars(reference) == 6
 
 
 def test_a_track_that_opens_loud_has_no_quiet_opening():
@@ -43,7 +29,7 @@ def test_a_track_that_opens_loud_has_no_quiet_opening():
         Section(name="s2", level="major", bar_start=21, bar_end=30, energy=2.0),
     ]
 
-    assert music_stage.quiet_opening_bars(music_of(loud)) == 0
+    assert music_stage.quiet_opening_bars(loud) == 0
 
 
 def test_consecutive_quiet_sections_are_all_part_of_the_opening():
@@ -54,7 +40,7 @@ def test_consecutive_quiet_sections_are_all_part_of_the_opening():
         Section(name="c", level="major", bar_start=8, bar_end=30, energy=9.0),
     ]
 
-    assert music_stage.quiet_opening_bars(music_of(eased)) == 8
+    assert music_stage.quiet_opening_bars(eased) == 8
 
 
 def test_a_quiet_section_later_in_the_track_is_not_an_opening():
@@ -64,7 +50,7 @@ def test_a_quiet_section_later_in_the_track_is_not_an_opening():
         Section(name="b", level="major", bar_start=10, bar_end=30, energy=0.5),
     ]
 
-    assert music_stage.quiet_opening_bars(music_of(breakdown)) == 0
+    assert music_stage.quiet_opening_bars(breakdown) == 0
 
 
 @pytest.mark.parametrize(
@@ -72,7 +58,7 @@ def test_a_quiet_section_later_in_the_track_is_not_an_opening():
 )
 def test_a_track_with_nothing_to_compare_has_no_quiet_opening(sections):
     """One section is its own peak, so it can never be the quiet part of anything."""
-    assert music_stage.quiet_opening_bars(music_of(sections)) == 0
+    assert music_stage.quiet_opening_bars(sections) == 0
 
 
 def test_minor_sections_carry_the_answer_when_there_are_no_major_ones():
@@ -81,4 +67,4 @@ def test_minor_sections_carry_the_answer_when_there_are_no_major_ones():
         Section(name="b", level="minor", bar_start=3, bar_end=30, energy=9.0),
     ]
 
-    assert music_stage.quiet_opening_bars(music_of(minor)) == 3
+    assert music_stage.quiet_opening_bars(minor) == 3

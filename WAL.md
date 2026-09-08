@@ -272,6 +272,26 @@ Weights here are positions along the reel and have nothing to do with the scorin
 tunes. Same word, different quantity; the spec now says so, because the first plan for this
 step had them as a score multiplier.
 
+**A hidden control that is not hidden writes decisions nothing will honour.** `.order { display:
+flex }` is an author rule and beats the browser's `[hidden] { display: none }`, so the
+mode-specific ordering controls were live in every mode: pinning a clip while in `auto` recorded
+it, painted the card as pinned, and was then ignored by the director *and* invisible to the
+conflict report, since a mode reads only its own fields. Driving the page did not catch it
+because switching modes visibly changes something — the sequence panel, which happens to declare
+no `display` of its own.
+
+**A check must judge the edit against the sections it was built from.** Moving the material rule
+onto the section table made `spec/002_manifests.md`'s rule apply where it previously could not:
+the drum onset lived in `music.json` alone, so there was nothing else to read, while sections
+travel with the EDL. A re-analysed track would otherwise fault an edit for a structure it was
+never built against.
+
+**Two functions cannot be trusted to agree about the same walk.** The conflict report
+recomputed which pins were honoured and got a different answer from the director, reporting a
+clip that gave up its turn as "beaten to the last slot" — a competitor that never existed. The
+queue is one function now, depending on nothing but the pins and the slot lengths, so the
+report and the edit agree by construction rather than by review.
+
 ## Phase 4: Musicality
 
 ### 4.1 Sections, mood, clip↔section matching

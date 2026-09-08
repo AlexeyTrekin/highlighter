@@ -10,7 +10,7 @@ import librosa
 
 from app.audio import grid as grid_fit
 from app.audio import sections as section_detect
-from app.manifests.music import Music
+from app.manifests.music import Music, Section
 
 STAGE = "music"
 
@@ -91,7 +91,7 @@ def validate_grid(music: Music) -> tuple[bool, str]:
     return ok, detail
 
 
-def quiet_opening_bars(music: Music) -> int:
+def quiet_opening_bars(sections: list[Section]) -> int:
     """Bars of the low-energy section, or sections, the track opens with.
 
     Read off the section table rather than off a drum entry: a rule keyed on an instrument is a
@@ -99,11 +99,15 @@ def quiet_opening_bars(music: Music) -> int:
     (`spec/006_music.md`). A track that starts loud simply has none of these bars, and the
     preference they carry never applies.
 
+    Takes the sections rather than the whole `Music` so a check can pass the ones the EDL was
+    built from (`spec/002_manifests.md`): judging a hand-set edit against the project's current
+    analysis reports a fault that is not there.
+
     On the reference track this returns the same six bars the drum entry marked — the opening
     section sits at 0.44 of the loudest section's energy and the one after it at 1.00, so the
     boundary has room on both sides.
     """
-    structural = [s for s in music.sections if s.level == "major"] or music.sections
+    structural = [s for s in sections if s.level == "major"] or list(sections)
     if not structural:
         return 0
 
@@ -112,7 +116,9 @@ def quiet_opening_bars(music: Music) -> int:
         return 0
 
     bars = 0
-    for section in structural:
+    # Sorted rather than assumed: this is the only reader that depends on the table's order, and
+    # the leading run is the whole question it asks.
+    for section in sorted(structural, key=lambda s: s.bar_start):
         if section.energy > QUIET_SECTION_FRACTION * loudest:
             break
         bars = section.bar_end + 1

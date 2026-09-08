@@ -156,6 +156,11 @@ button:disabled { opacity: .55; cursor: default; }
    just typed or dragged is worse than showing it unsaved — so the outline is what says so. */
 .unsaved, .unsaved.note-input { outline: 2px solid var(--drop); outline-offset: 2px; }
 
+/* The browser's own `[hidden] { display: none }` is a UA rule, so any author `display` here
+   would beat it and a control the page means to hide would stay clickable — which for the
+   ordering blocks means writing a pin the active mode ignores and nothing reports. */
+[hidden] { display: none !important; }
+
 .modes { border: 1px solid var(--line); border-radius: 8px; padding: .3rem .6rem; }
 .modes legend { color: var(--muted); font-size: .8em; padding: 0 .3rem; }
 .modes label { margin-right: .6rem; white-space: nowrap; }

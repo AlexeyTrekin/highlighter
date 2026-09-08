@@ -229,9 +229,18 @@ const cardsById = new Map(cards.map((card) => [card.dataset.id, card]));
 
 // Written whole: a sequence is one statement, and saving it in pieces would leave the file
 // describing an order nobody asked for if a save in the middle failed.
-const saveOrder = debounce(async () => {
-  const saved = await send("PUT", "/api/order", order);
-  sequencePanel.classList.toggle("unsaved", !saved);
+let orderSaves = Promise.resolve();
+const saveOrder = debounce(() => {
+  // Chained, not merely serialised by the server's lock: two whole-object writes that overlap
+  // can land out of order, and the file would keep the earlier order while the page shows the
+  // later one.
+  const body = structuredClone(order);
+  orderSaves = orderSaves.then(async () => {
+    const saved = await send("PUT", "/api/order", body);
+    for (const marker of [sequencePanel, document.querySelector(".modes")]) {
+      marker.classList.toggle("unsaved", !saved);
+    }
+  });
 }, 300);
 
 function moveInSequence(from, to) {
@@ -249,10 +258,16 @@ function sequenceEntry(id, index) {
   item.tabIndex = 0;
   item.dataset.id = id;
   const card = cardsById.get(id);
-  const material = card ? card.querySelector(".badge").textContent : "";
-  item.innerHTML =
-    `<span class="seq-index">${index + 1}</span> <strong>${id}</strong> ` +
-    `<span class="muted">${material}</span>`;
+  // Built as nodes, not markup: the id comes from a file a person can edit by hand.
+  const position = document.createElement("span");
+  position.className = "seq-index";
+  position.textContent = index + 1;
+  const name = document.createElement("strong");
+  name.textContent = id;
+  const material = document.createElement("span");
+  material.className = "muted";
+  material.textContent = card ? card.querySelector(".badge").textContent : "";
+  item.append(position, name, material);
 
   const remove = document.createElement("button");
   remove.textContent = "remove";
@@ -303,14 +318,13 @@ function drawOrder() {
     const weight = weightOf(id);
     const slider = card.querySelector(".weight");
     const readout = card.querySelector(".weight-readout");
-    if (weight === undefined) {
-      readout.textContent = "agent's call";
-    } else {
-      slider.value = weight;
-      readout.textContent = weight === 0 ? "opens the reel"
-        : weight === 100 ? "closes the reel"
-        : `weight ${weight}`;
-    }
+    // The handle is reset too, so a cleared weight does not leave it sitting at the old value
+    // beside a readout that says nothing is set.
+    slider.value = weight === undefined ? 50 : weight;
+    readout.textContent = weight === undefined ? "agent's call"
+      : weight === 0 ? "opens the reel"
+      : weight === 100 ? "closes the reel"
+      : `weight ${weight}`;
     card.classList.toggle("pinned", at !== -1 || weight !== undefined);
   }
 }
@@ -364,6 +378,9 @@ document.addEventListener("keydown", (event) => {
   // `?.` because a keydown whose focused element has just been removed is retargeted to the
   // document, which has no `matches` — and a throw here stops every keystroke silently.
   if (event.target.matches?.("input, textarea")) return;
+  // The sequence list has its own arrow keys, and a digit pressed there would set a verdict on
+  // whichever card the grid last had — a card the user is not looking at.
+  if (event.target.closest?.("#sequence")) return;
   // Cmd+1 switches browser tabs and Cmd+K opens the address bar; neither is a verdict.
   if (event.metaKey || event.ctrlKey || event.altKey) return;
   const keys = { 1: "drop", 2: "agent", 3: "keep" };

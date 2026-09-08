@@ -163,11 +163,14 @@ def test_a_single_weight_anchors_proportionally():
     assert placed.index("c012") == pytest.approx(len(placed) // 2, abs=1)
 
 
-def test_the_same_order_produces_the_same_reel_twice():
-    """Positions must not depend on dict order; a user cannot tell drift from an improvement."""
-    review = Review(order=Order(mode="weighted", weights={"c009": 20.0, "c004": 20.0}))
+def test_the_order_does_not_depend_on_how_the_weights_were_typed():
+    """A batch is ordered by the director, and "by the director" must not mean "by whichever key
+    the user set first" — a clip that moves between runs for no visible reason is drift the user
+    cannot tell from an improvement (`spec/002_manifests.md`)."""
+    one_way = Review(order=Order(mode="weighted", weights={"c009": 20.0, "c004": 20.0}))
+    the_other = Review(order=Order(mode="weighted", weights={"c004": 20.0, "c009": 20.0}))
 
-    assert reel(review) == reel(review)
+    assert reel(one_way) == reel(the_other)
 
 
 def test_a_pin_overrides_the_quality_gates():
@@ -211,7 +214,8 @@ def test_a_pin_past_the_end_of_the_reel_says_how_long_the_reel_is():
     the reel simply stops before that position."""
     review = Review(order=Order(mode="strict", sequence=[f"c{i:03d}" for i in range(1, 12)]))
     candidates = candidates_for()
-    # Eight bars of music, so two slots of four, and nine of the eleven pins have nowhere to go.
+    # Eight seconds of reel, so four bars and two slots, and nine of the eleven pins have
+    # nowhere to go.
     music = music_for()
     project = project_for(duration_s=8.0)
 
@@ -238,7 +242,7 @@ def test_the_edl_records_which_pin_placed_a_clip():
 
     edl = director.run(project_for(), music_for(), candidates_for(), review)
 
-    assert edl.clips[0].order_reason == "pinned by the user; 1 in their order"
+    assert edl.clips[0].order_reason == "pinned by the user, 1 in their sequence"
 
 
 def test_a_pin_slides_to_the_next_slot_it_fits_rather_than_losing_its_place():
@@ -275,3 +279,80 @@ def test_a_pin_nothing_can_hold_does_not_block_the_rest_of_the_sequence():
     assert placed[:2] == ["c002", "c003"]
     conflicts = director.unhonoured_keeps(project, music_for(), candidates, review, edl)
     assert [cid for cid, _ in conflicts] == ["c001"]
+
+
+def _one_bar_opening() -> list[Section]:
+    """A reel whose first slot is one bar and whose second is three."""
+    return [
+        Section(name="a", level="major", bar_start=0, bar_end=0, energy=5.0),
+        Section(name="b", level="major", bar_start=1, bar_end=39, energy=5.0),
+    ]
+
+
+def test_a_pin_that_gives_up_its_turn_says_that_and_not_that_it_was_beaten():
+    """It fits the one-bar opening, which was passed over precisely to honour its own place in
+    the order. Telling the user it was "beaten to the last slot" sends them hunting a competitor
+    that never existed."""
+    candidates = candidates_for()
+    candidates.candidates[1].end = 3.0  # one bar's worth: too short for every slot after the first
+    review = Review(order=Order(mode="strict", sequence=["c001", "c002"]))
+    project, music = project_for(), music_for(_one_bar_opening())
+
+    edl = director.run(project, music, candidates, review)
+    conflicts = director.unhonoured_keeps(project, music, candidates, review, edl)
+
+    assert "c002" not in {clip.candidate_id for clip in edl.clips}
+    assert conflicts == [
+        ("c002", "no slot from its place in your order onwards is short enough for it")
+    ]
+
+
+def test_a_held_back_pin_is_brought_forward_rather_than_ending_the_reel():
+    """Withholding a clip until its turn must not cost the whole rest of the reel: the user can
+    judge a clip that came early, not footage that was never shown (`spec/006_music.md`).
+
+    Two clips over three slots, the second weighted to the end — so the middle slot has nothing
+    but the clip being held back for the last one.
+    """
+    candidates = candidates_for(count=2)
+    review = Review(order=Order(mode="weighted", weights={"c002": 100.0}))
+    project, music = project_for(duration_s=12.0), music_for()
+
+    edl = director.run(project, music, candidates, review)
+
+    assert [clip.candidate_id for clip in edl.clips] == ["c001", "c002"]
+    assert edl.clips[1].order_reason.startswith("brought forward")
+    assert director.unhonoured_keeps(project, music, candidates, review, edl) == []
+
+
+def test_the_pin_reason_uses_the_users_own_numbering():
+    """A clip pinned second can land third because the second slot was too long for it. Saying
+    "3 in their order" would describe a request nobody made."""
+    candidates = candidates_for()
+    candidates.candidates[1].end = 5.0  # skips the three-bar slot
+    review = Review(order=Order(mode="strict", sequence=["c001", "c002"]))
+
+    edl = director.run(project_for(), music_for(_one_bar_opening()), candidates, review)
+    by_id = {clip.candidate_id: clip for clip in edl.clips}
+
+    assert by_id["c002"].order_reason == "pinned by the user, 2 in their sequence"
+    assert by_id["c002"].grid_slot > edl.clips[1].grid_slot, "and it did land later than second"
+
+
+def test_a_weighted_pin_names_its_weight():
+    review = Review(order=Order(mode="weighted", weights={"c009": 30.0}))
+
+    edl = director.run(project_for(), music_for(), candidates_for(), review)
+    placed = next(c for c in edl.clips if c.candidate_id == "c009")
+
+    assert placed.order_reason == "pinned by the user at weight 30"
+
+
+def test_a_rescued_pin_records_the_gate_it_overrode():
+    candidates = candidates_for()
+    candidates.candidates[5].flags = ["fighters_not_both_visible"]
+    review = Review(order=Order(mode="strict", sequence=["c006"]))
+
+    edl = director.run(project_for(), music_for(), candidates, review)
+
+    assert "kept despite fighters_not_both_visible" in edl.clips[0].order_reason

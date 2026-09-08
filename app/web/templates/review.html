@@ -148,7 +148,9 @@
 </details>
 {% endif %}
 
-<script type="application/json" id="order-state">{{ order|safe }}</script>
+{# `<` escaped rather than trusted: JSON does not escape it, so a `</script>` inside any string
+   would close this block and the rest would be parsed as markup. #}
+<script type="application/json" id="order-state">{{ order|replace("<", "\\u003c")|safe }}</script>
 <script src="/static/review.js"></script>
 </body>
 </html>

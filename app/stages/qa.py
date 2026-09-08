@@ -320,8 +320,12 @@ def material_match(edl: Edl, music: Music) -> Check:
     hold no non-fight material, or the user may have pinned a clip here, and a reel truncated to
     protect the rule would hide more than it saved (`spec/006_music.md`). Reported either way —
     the point is that a mismatch is seen before the reel is watched, not that it is forbidden.
+
+    Judged against the sections the EDL carries, not the project's current `music.json`: a
+    hand-set edit may not match a later analysis, and marking it against sections it was never
+    built from reports a fault that is not there (`spec/002_manifests.md`).
     """
-    quiet_bars = music_stage.quiet_opening_bars(music)
+    quiet_bars = music_stage.quiet_opening_bars(edl.music_sections or music.sections)
     if quiet_bars == 0:
         return Check(
             name="material_match",
