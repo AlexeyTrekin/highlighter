@@ -13,6 +13,7 @@ writes manifests; the video is a deterministic render of `edl.json`.
   identity.json         kit clusters and target assignment   (personal mode)
   music.json            grid, sections, chords, mood
   proxies/cNNN.mp4      360p review previews, one per candidate
+  posters/cNNN.jpg      first frame shown for a proxy, before it plays
   strips/cNNN.jpg       filmstrip contact sheets
   review.json           human verdicts, trims, ordering hints
   edl.json              THE CONTRACT

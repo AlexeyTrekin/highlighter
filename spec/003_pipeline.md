@@ -43,7 +43,7 @@ Stabilisation is a render-time operation applied **after** the tracked crop
 | `candidates` | `analysis/*` | `candidates.json` | no |
 | `identity` | `analysis/*`, `candidates.json` | `identity.json`, snapshots | frame grabs only |
 | `music` | track or nothing | `music.json` | n/a |
-| `proxies` | source files, `candidates.json` | `proxies/`, `strips/` | yes |
+| `proxies` | source files, `candidates.json` | `proxies/`, `posters/`, `strips/` | yes |
 | `review` | `candidates.json` | `review.json` | no (serves files) |
 | `director` | `candidates.json`, `music.json`, `review.json?`, `identity.json?` | `edl.json` | no |
 | `render` | `edl.json`, source files, track | `render/`, `highlight_vN.mp4` | yes |
