@@ -106,6 +106,21 @@ that carries no musical event produces a cut the listener hears as arbitrary, be
 the reference reel cut at bar 3 of a six-bar intro, where nothing happens in the music, and
 the two acceptable endings a listener named were the two real boundaries at bars 1 and 6.
 
+### The opening may be one bar
+
+A clip is normally at least two bars. The reel's **first** slot is exempt and may be a single
+bar.
+
+Without the exception, a section whose first musical step falls one bar in can never be cut
+there — the split would orphan a piece below the minimum — and the cut falls back to a plain
+bar, which is the option ranked last above. On the reference track that step is at bar 1, one
+of the two endings a listener actually named.
+
+A one-bar opening is about two seconds, which is short for a shot. It is a default, not a
+conviction: the correction stage MUST let a viewer merge it into the clip that follows
+(`007_review_ui.md`). No other slot may be shorter than two bars, because a short clip
+mid-reel reads as a mistake rather than an opening gesture.
+
 ## A section holds one kind of material
 
 Material type MUST match section character, and this is checked rather than hoped for

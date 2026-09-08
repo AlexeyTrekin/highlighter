@@ -15,7 +15,12 @@ Side = Literal["L", "R"]
 # rather than assuming either way.
 Material = Literal["action", "non_action", "unknown"]
 
+# A clip is normally at least two bars — one action. The reel's opening may be a single bar,
+# so a section whose first musical step falls one bar in can still be cut there instead of at
+# an arbitrary later bar (`spec/006_music.md`). This is the floor for any slot, and therefore
+# the floor the candidate gate uses.
 MIN_BARS: int = 2
+OPENING_MIN_BARS: int = 1
 
 
 class Features(BaseModel):
@@ -83,4 +88,5 @@ def max_bars(candidate: Candidate, bar_s: float, source_duration: float) -> int:
 
 
 def fits_minimum(candidate: Candidate, bar_s: float, source_duration: float) -> bool:
-    return max_bars(candidate, bar_s, source_duration) >= MIN_BARS
+    """Whether the source can fill the shortest slot the director may create."""
+    return max_bars(candidate, bar_s, source_duration) >= OPENING_MIN_BARS

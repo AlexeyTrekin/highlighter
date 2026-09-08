@@ -12,7 +12,7 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 
-from app.manifests.candidates import MIN_BARS, Candidate, Candidates, Features
+from app.manifests.candidates import OPENING_MIN_BARS, Candidate, Candidates, Features
 from app.manifests.music import Music
 from app.manifests.project import Project, Source
 
@@ -156,10 +156,14 @@ def apply_gates(candidate: Candidate, bar_s: float, source_duration: float) -> N
     carefully its *length* was capped.
 
     The minimum-slot gate is then the freeze fix (`spec/005_scoring.md`): a source that cannot
-    supply `MIN_BARS` of footage ending at the anchor is not a weak candidate, it is not a
+    fill the shortest slot the director may create is not a weak candidate, it is not a
     candidate. Stretching one past the end of its file is what produced frozen tails.
+
+    Gated against the *shortest* permitted slot rather than the usual clip length, because a
+    window that can only fill the one-bar opening is still usable. The director decides
+    per slot whether a given candidate is long enough.
     """
     candidate.end = min(candidate.end, source_duration)
     candidate.anchor = min(candidate.anchor, candidate.end)
-    if candidate.end < MIN_BARS * bar_s:
+    if candidate.end < OPENING_MIN_BARS * bar_s:
         candidate.flags.append("source_too_short")

@@ -30,9 +30,17 @@ def test_the_same_clip_maps_to_the_same_file():
     assert clip_path(ROOT, clip(), OUTPUT) == clip_path(ROOT, clip(), OUTPUT)
 
 
-def test_a_different_candidate_in_the_same_slot_gets_a_different_file():
-    """The re-cut case: slot 0 now holds a different clip."""
-    assert clip_path(ROOT, clip(candidate="c001"), OUTPUT) != clip_path(
+def test_the_re_cut_case_gets_a_different_file():
+    """Slot 0 now holds different footage: the cached file must not be reused."""
+    replacement = clip()
+    replacement.source_id = "v09"
+
+    assert clip_path(ROOT, clip(), OUTPUT) != clip_path(ROOT, replacement, OUTPUT)
+
+
+def test_two_candidates_over_identical_footage_share_a_file():
+    """Same source, same in and out: the same pixels, so rendering it twice would be waste."""
+    assert clip_path(ROOT, clip(candidate="c001"), OUTPUT) == clip_path(
         ROOT, clip(candidate="c002"), OUTPUT
     )
 
@@ -54,3 +62,26 @@ def test_changed_output_settings_get_a_different_file():
 def test_the_name_still_sorts_by_slot():
     """Concat order comes from the EDL, but a sortable name keeps the directory readable."""
     assert clip_path(ROOT, clip(slot=0), OUTPUT).name < clip_path(ROOT, clip(slot=1), OUTPUT).name
+
+
+def test_moving_a_clip_to_another_slot_reuses_its_render():
+    """Re-tuning the director shuffles slots without changing a single pixel; re-rendering the
+    whole reel for that would defeat the checkpoint entirely."""
+    here = clip_path(ROOT, clip(slot=0), OUTPUT)
+    there = clip_path(ROOT, clip(slot=6), OUTPUT)
+
+    assert here.name.split("_")[1] == there.name.split("_")[1]
+
+
+def test_the_reel_length_does_not_affect_a_clip_name():
+    """Adding or dropping one clip changes `output.duration_s` for every other clip."""
+    longer = Output(width=1920, height=1080, fps=30, duration_s=90.0)
+
+    assert clip_path(ROOT, clip(), OUTPUT).name == clip_path(ROOT, clip(), longer).name
+
+
+def test_a_changed_crop_gets_a_different_file():
+    tracked = clip()
+    tracked.crop = Crop(mode="fixed", x=0, y=0, w=640, h=360)
+
+    assert clip_path(ROOT, clip(), OUTPUT) != clip_path(ROOT, tracked, OUTPUT)

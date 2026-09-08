@@ -54,12 +54,18 @@ def clip_path(root: Path, clip: Clip, output: Output) -> Path:
     reuse a cached file from the previous one. Caching by position would silently serve the
     old clip at the new slot — a stale reel that looks freshly rendered.
     """
-    # Only what changes this clip's pixels. The reel's total duration lives on `output` too,
-    # and including it would give every cached clip a new name whenever a clip is added or
-    # dropped — defeating the per-clip checkpoint this naming exists to protect.
+    # Only what changes this clip's pixels. Everything else on the clip — which slot it holds,
+    # its section, its score, why it was chosen — can change without the picture changing, and
+    # hashing it would re-render the whole reel every time the director is re-tuned.
     payload = json.dumps(
         {
-            "clip": clip.model_dump(mode="json", by_alias=True),
+            "source": clip.source_id,
+            "in": clip.in_,
+            "out": clip.out,
+            "bars": clip.bars,
+            "crop": clip.crop.model_dump(),
+            "speed": clip.speed,
+            "stabilize": clip.stabilize,
             "frame": [output.width, output.height, output.fps],
         },
         sort_keys=True,

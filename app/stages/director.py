@@ -7,7 +7,14 @@ are implemented for real, because they are what the prototype got wrong.
 """
 
 from app.manifests import music as music_schema
-from app.manifests.candidates import MIN_BARS, Candidate, Candidates, max_bars, usable
+from app.manifests.candidates import (
+    MIN_BARS,
+    OPENING_MIN_BARS,
+    Candidate,
+    Candidates,
+    max_bars,
+    usable,
+)
 from app.manifests.edl import Clip, Crop, Edl, Output
 from app.manifests.music import Music
 from app.manifests.project import Project, source_by_id
@@ -55,6 +62,11 @@ def run(project: Project, music: Music, candidates: Candidates) -> Edl:
         source = source_by_id(project, candidate.source_id)
         clips.append(to_clip(candidate, music, bars, slot, reason, source.duration_s))
 
+    if not clips:
+        raise NoUsableCandidates(
+            "no candidate could fill the first slot; every window is shorter than the bar grid"
+        )
+
     return Edl(
         grid=grid,
         music_sections=music.sections,
@@ -74,7 +86,9 @@ def ranked(project: Project, music: Music, candidates: Candidates) -> list[Candi
     The id is the final tiebreak so equal scores never fall back on set or dict iteration
     order, which would let clips move between runs for no reason the user can see.
     """
-    keep = [c for c in candidates.candidates if usable(c) and fills(c, project, music, MIN_BARS)]
+    keep = [
+        c for c in candidates.candidates if usable(c) and fills(c, project, music, OPENING_MIN_BARS)
+    ]
     return sorted(keep, key=lambda c: (-c.score, c.id))
 
 
@@ -101,15 +115,17 @@ def spans(music: Music, total_bars: int, level: str) -> list[tuple[int, int]]:
     return [(a, b - a) for a, b in zip(bounds, bounds[1:], strict=False) if b > a]
 
 
-def partition(length: int) -> list[int]:
+def partition(length: int, minimum: int = MIN_BARS) -> list[int]:
     """Split a span into clip lengths.
 
     Two bars is one action and three is an action with its approach, so a span is filled with
-    twos and at most one three. A span shorter than `MIN_BARS` holds nothing — returning an
-    empty plan is what keeps a one-bar slot, which no candidate may fill, out of the timeline.
+    twos and at most one three. A span shorter than `minimum` holds nothing — returning an
+    empty plan is what keeps an unfillable slot out of the timeline.
     """
-    if length < MIN_BARS:
+    if length < minimum:
         return []
+    if length < MIN_BARS:
+        return [length]
     if length % CLIP_BARS == 0:
         return [CLIP_BARS] * (length // CLIP_BARS)
     return [CLIP_BARS_LONG, *[CLIP_BARS] * ((length - CLIP_BARS_LONG) // CLIP_BARS)]
@@ -129,23 +145,34 @@ def plan_slots(music: Music, total_bars: int) -> list[tuple[int, int]]:
     for start, length in spans(music, total_bars, "major"):
         for piece_start, piece_length in _subdivide(start, length, minor_starts):
             cursor = piece_start
-            for bars in partition(piece_length):
+            minimum = OPENING_MIN_BARS if piece_start == 0 else MIN_BARS
+            for bars in partition(piece_length, minimum):
                 slots.append((cursor, bars))
                 cursor += bars
+                minimum = MIN_BARS
     return slots
 
 
 def _subdivide(start: int, length: int, minor_starts: set[int]) -> list[tuple[int, int]]:
-    """Split a major span at its minor boundaries, or leave it whole."""
+    """Split a major span at its minor boundaries, or leave it whole.
+
+    The reel's opening piece may be a single bar. Without that exception a section whose first
+    musical step falls one bar in can never be cut there, and the cut falls back to a plain bar
+    that carries no event — which is the thing `spec/006_music.md` ranks last.
+    """
     inside = sorted(b for b in minor_starts if start < b < start + length)
     if not inside:
         return [(start, length)]
 
     bounds = [start, *inside, start + length]
     pieces = [(a, b - a) for a, b in zip(bounds, bounds[1:], strict=False)]
-    if all(size >= MIN_BARS for _, size in pieces):
+    if all(size >= _floor_for(piece_start) for piece_start, size in pieces):
         return pieces
     return [(start, length)]
+
+
+def _floor_for(piece_start: int) -> int:
+    return OPENING_MIN_BARS if piece_start == 0 else MIN_BARS
 
 
 def choose(

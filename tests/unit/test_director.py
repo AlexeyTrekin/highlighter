@@ -167,17 +167,59 @@ def test_slots_are_contiguous_and_stop_at_major_boundaries():
     assert (6, 2) in slots, "a slot must begin exactly at the major boundary"
 
 
-def test_a_minor_boundary_is_ignored_when_it_would_orphan_a_bar():
-    """Bar 0 alone cannot hold a clip, so the intro stays whole rather than leaving a gap."""
+def test_the_opening_may_be_a_single_bar():
+    """The reference track's first musical step is one bar in. Without the opening exception
+    that boundary is unusable and the cut falls back to a plain bar carrying no event."""
     sections = [
         Section(name="intro", level="major", bar_start=0, bar_end=5, energy=0.5),
         Section(name="intro.0", level="minor", bar_start=0, bar_end=0, energy=0.3),
         Section(name="intro.1", level="minor", bar_start=1, bar_end=5, energy=0.6),
     ]
+
     slots = director.plan_slots(music_with(sections), total_bars=6)
 
+    assert slots[0] == (0, 1)
     assert sum(bars for _, bars in slots) == 6
-    assert all(bars >= director.MIN_BARS for _, bars in slots)
+    assert all(bars >= director.MIN_BARS for start, bars in slots if start != 0)
+
+
+def test_only_the_opening_may_be_short():
+    """A one-bar slot mid-reel reads as a mistake, not an opening gesture."""
+    sections = [
+        Section(name="intro", level="major", bar_start=0, bar_end=7, energy=0.5),
+        Section(name="intro.1", level="minor", bar_start=7, bar_end=7, energy=0.6),
+    ]
+
+    slots = director.plan_slots(music_with(sections), total_bars=8)
+
+    assert all(bars >= director.MIN_BARS for start, bars in slots if start != 0)
+    assert sum(bars for _, bars in slots) == 8
+
+
+@pytest.mark.parametrize(
+    ("length", "minimum", "expected"),
+    [(1, 1, [1]), (1, 2, []), (2, 1, [2]), (5, 1, [3, 2]), (6, 2, [2, 2, 2])],
+)
+def test_partition_respects_the_floor_it_is_given(length, minimum, expected):
+    assert director.partition(length, minimum) == expected
+
+
+def test_a_source_that_only_fills_one_bar_survives_the_gate():
+    """Gated at the absolute floor, so a window usable only in the opening is not discarded."""
+    project = project_with([("v01", 20.0), ("v02", 2.6)], duration_s=12.0)
+    candidates = candidates_for(
+        [("c001", "v01", 20.0, 0.5, "unknown"), ("c002", "v02", 2.6, 0.9, "unknown")]
+    )
+    sections = [
+        Section(name="intro", level="major", bar_start=0, bar_end=5, energy=0.5),
+        Section(name="intro.0", level="minor", bar_start=0, bar_end=0, energy=0.3),
+        Section(name="intro.1", level="minor", bar_start=1, bar_end=5, energy=0.6),
+    ]
+
+    edl = director.run(project, music_with(sections), candidates)
+
+    assert edl.clips[0].bars == 1
+    assert edl.clips[0].source_id == "v02", "the short source can only fill the opening"
 
 
 def test_the_director_is_deterministic():
@@ -207,8 +249,19 @@ def test_every_clip_records_why_it_holds_its_slot():
 
 
 def test_no_usable_candidates_is_an_error_not_an_empty_reel():
-    project = project_with([("v01", 2.0)])
-    candidates = candidates_for([("c001", "v01", 2.0, 5.0, "unknown")])
+    """Every window below one bar: nothing survives the gate."""
+    project = project_with([("v01", 1.2)])
+    candidates = candidates_for([("c001", "v01", 1.2, 5.0, "unknown")])
+
+    with pytest.raises(director.NoUsableCandidates):
+        director.run(project, music_with([]), candidates)
+
+
+def test_an_unfillable_first_slot_is_an_error_not_an_empty_reel():
+    """A one-bar window survives the gate but cannot fill a two-bar opening slot. Returning an
+    empty EDL would ship a zero-length reel with every check green."""
+    project = project_with([("v01", 2.2)])
+    candidates = candidates_for([("c001", "v01", 2.2, 5.0, "unknown")])
 
     with pytest.raises(director.NoUsableCandidates):
         director.run(project, music_with([]), candidates)
