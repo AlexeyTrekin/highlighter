@@ -71,13 +71,17 @@ def run(
         raise NoUsableCandidates("every candidate was dropped by the quality gates")
 
     total_bars = bar_budget(music, project.options.duration_s)
-    drumless = music_stage.drumless_bars(music)
+    quiet_bars = music_stage.quiet_opening_bars(music)
 
     clips: list[Clip] = []
     previous_source: str | None = None
 
+    # Front to back, which is also what settles the one contest between two preferences: with a
+    # single calm window and both a quiet opening and a coda wanting it, the opening takes it. An
+    # action clip under a quiet opening is jarring; under a fade-out it is a wasted finale, and
+    # `fade_target` reports that one.
     for slot, bars in plan_slots(music, total_bars):
-        chosen = choose(pool, project, music, bars, slot, drumless, previous_source, total_bars)
+        chosen = choose(pool, project, music, bars, slot, quiet_bars, previous_source, total_bars)
         if chosen is None:
             # Skipping would leave a hole in the timeline and every later clip would start on
             # the wrong bar, so the reel ends here instead.
@@ -112,9 +116,9 @@ def unhonoured_keeps(
     """Clips the user marked keep that did not reach the reel, and why.
 
     A keep is the strongest signal the pipeline gets, and one can still be impossible — too
-    short for any slot this reel has, fight material where only the drumless opening would take
-    it, or simply beaten to the last slot. Letting it vanish silently is the worst outcome: the
-    user made a decision, the reel ignored it, and nothing said so (`spec/007_review_ui.md`).
+    short for any slot this reel has, or simply beaten to the last slot. Letting it vanish
+    silently is the worst outcome: the user made a decision, the reel ignored it, and nothing
+    said so (`spec/007_review_ui.md`).
 
     The reason is worked out against the slot plan the reel was actually built from, so it names
     the rule that excluded this clip rather than a plausible one.
@@ -122,7 +126,6 @@ def unhonoured_keeps(
     placed = {clip.candidate_id for clip in edl.clips}
     adjusted = {c.id: c for c in applied(candidates, review).candidates}
     slots = plan_slots(music, bar_budget(music, project.options.duration_s))
-    drumless = music_stage.drumless_bars(music)
 
     conflicts: list[tuple[str, str]] = []
     for candidate_id in review.verdicts:
@@ -132,9 +135,7 @@ def unhonoured_keeps(
         if candidate is None:
             conflicts.append((candidate_id, "no such candidate"))
         else:
-            conflicts.append(
-                (candidate_id, _why_unplaced(candidate, project, music, slots, drumless))
-            )
+            conflicts.append((candidate_id, _why_unplaced(candidate, project, music, slots)))
     return sorted(conflicts)
 
 
@@ -143,7 +144,6 @@ def _why_unplaced(
     project: Project,
     music: Music,
     slots: list[tuple[int, int]],
-    drumless_bars: int,
 ) -> str:
     """Which rule kept this clip out, in terms of the reel that was actually built."""
     if not fills(candidate, project, music, OPENING_MIN_BARS):
@@ -154,14 +154,8 @@ def _why_unplaced(
             f"only {length:.2f}s{after}; the shortest slot is "
             f"{OPENING_MIN_BARS * music.grid.bar_s:.2f}s"
         )
-    if any(
-        eligible_for(candidate, project, music, bars, slot, drumless_bars) for slot, bars in slots
-    ):
-        return "beaten to the last slot"
     if any(fills(candidate, project, music, bars) for _, bars in slots):
-        # Long enough for a slot, but only for one the drums have not reached: the drumless
-        # opening takes no fight material, and this candidate is the one thing it cannot use.
-        return "long enough only for the drumless opening, which takes no fight material"
+        return "beaten to the last slot"
     shortest = min(bars for _, bars in slots)
     return (
         f"fills none of this reel's slots; the shortest is {shortest} "
@@ -296,43 +290,25 @@ def _floor_for(piece_start: int) -> int:
     return OPENING_MIN_BARS if piece_start == 0 else MIN_BARS
 
 
-def eligible_for(
-    candidate: Candidate,
-    project: Project,
-    music: Music,
-    bars: int,
-    slot: int,
-    drumless_bars: int,
-) -> bool:
-    """Whether this slot could take this candidate at all.
-
-    The two constraints that bind, as against the preferences applied afterwards: the source
-    must fill the slot, and fight material may not appear before the drums arrive. Shared with
-    the conflict report, so what it tells the user about an unplaced keep is the rule that
-    actually excluded it.
-    """
-    return fills(candidate, project, music, bars) and not (
-        slot < drumless_bars and candidate.material == "action"
-    )
-
-
 def choose(
     pool: list[Candidate],
     project: Project,
     music: Music,
     bars: int,
     slot: int,
-    drumless_bars: int,
+    quiet_bars: int,
     previous_source: str | None,
     total_bars: int,
 ) -> tuple[Candidate, str] | None:
     """Best candidate for this slot, with the reason it was placed there.
 
-    Two structural constraints bind: the source must fill the slot, and fight material may not
-    appear before the drums arrive.
+    One constraint binds — the source must fill the slot. Everything else here is a preference
+    that yields when the footage cannot satisfy it (`spec/006_music.md`): a collection may hold
+    no non-fight material at all, and truncating the reel to protect a quiet opening would trade
+    a whole section of footage for a preference the viewer can see for themselves.
     """
-    quiet = slot < drumless_bars
-    eligible = [c for c in pool if eligible_for(c, project, music, bars, slot, drumless_bars)]
+    quiet = slot < quiet_bars
+    eligible = [c for c in pool if fills(c, project, music, bars)]
     if not eligible:
         return None
 
@@ -342,16 +318,16 @@ def choose(
     # one of them.
     coda = slot + bars >= total_bars and coda_bar(music, total_bars) is not None
     if quiet or coda:
-        # Under a quiet opening or a fade-out, prefer material known to be non-fight over
-        # material nothing could classify. `unknown` beating `non_action` on an action score
-        # is how a lunge ends up under a quiet chord: the score ranks how *interesting* a
-        # window is, which is the wrong question here.
-        eligible = [c for c in eligible if c.material == "non_action"] or eligible
-        if coda:
-            # Preferred rather than required, unlike the drumless intro. An action clip under
-            # a quiet opening is jarring; under a fade-out it is merely a wasted finale, and
-            # ending the reel early to avoid it would be the worse trade.
-            eligible = [c for c in eligible if c.material != "action"] or eligible
+        # Ranked preferences, strongest first, each falling through when it empties the
+        # shortlist: material known to be non-fight, then anything not known to be a fight,
+        # then whatever is left. `unknown` beating `non_action` on score is how a lunge ends up
+        # under a quiet chord — the score ranks how *interesting* a window is, which is the
+        # wrong question here — but an unclassified window still beats an exchange.
+        eligible = (
+            [c for c in eligible if c.material == "non_action"]
+            or [c for c in eligible if c.material != "action"]
+            or eligible
+        )
 
     varied = [c for c in eligible if c.source_id != previous_source]
     shortlist = varied or eligible
@@ -365,7 +341,9 @@ def choose(
     pick = shortlist[0]
 
     if quiet:
-        reason = f"bars {slot}-{slot + bars - 1} are drumless; picked {pick.material} material"
+        reason = (
+            f"bars {slot}-{slot + bars - 1} open the track quietly; picked {pick.material} material"
+        )
     elif coda:
         reason = f"the outro fade covers this clip; picked {pick.material} material"
     else:

@@ -67,13 +67,42 @@ Optional and skippable. Three modes:
 
 - `auto` — the director decides. Default.
 - `strict` — the user drags kept clips into an explicit sequence.
-- `weighted` — the user sets relative weights and fills **opening** and **ending** buckets;
-  the director orders within those constraints.
+- `weighted` — the user gives clips a position weight and fills **opening** and **ending**
+  buckets; the director orders within those constraints.
 
 A position the user set is **binding**. The director places only the clips left to it, and a
 re-run never rearranges a pinned one (`002_manifests.md`). Where a pin cannot be honoured —
-the clip was dropped, or its section no longer exists — the director surfaces the conflict
-rather than quietly resolving it.
+the clip was dropped, or it cannot fill the slot its position lands on — the director surfaces
+the conflict rather than quietly resolving it.
+
+#### Ordering is about order, not about time
+
+`sequence` and `weights` say which clip comes before which. They never name a bar or a second:
+which bars a clip occupies follows from the slot plan and the music grid (`006_music.md`), and
+a user-facing position that meant a bar index would silently point at a different clip whenever
+the music analysis changed.
+
+**`strict`** — `sequence` is candidate ids in reel order: `sequence[0]` is the first clip. It
+need not cover the reel. The director fills the positions after it by its own rules.
+
+**`weighted`** — a weight is a number from 0 to 100 giving a clip's place along the reel, low
+first. It is a relative composition, not a slot number:
+
+- Equal weights are a **batch**: the user says "these three go early", and the director orders
+  within the batch.
+- A clip with no weight is placed at the director's discretion, but never before the
+  lowest-weighted clip and never after the highest-weighted one. Weighting anything therefore
+  brackets everything else inside it.
+- Free positions between two weighted clips are distributed in proportion to the gap between
+  their weights, so 10 → 50 takes about twice the room of 50 → 70.
+- With exactly one weighted clip, it anchors at its proportional position — weight 60 of a ten
+  clip reel sits around clip six — and free clips fill both sides.
+
+`opening` and `ending` are shorthand for weight 0 and weight 100, so the page can offer "send
+to the start" next to the weight control without a second concept underneath it.
+
+Weights here order the reel. They are unrelated to the scoring weights in `project.json`, which
+decide how good a clip is rather than where it goes.
 
 ### 5. Final tweaks
 

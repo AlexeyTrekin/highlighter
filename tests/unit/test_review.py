@@ -185,24 +185,6 @@ def test_a_keep_too_short_for_any_slot_says_so():
     ]
 
 
-def test_a_keep_the_drumless_opening_cannot_take_says_so():
-    """The one slot it is long enough for is the quiet opening, and it is a fight clip."""
-    project, music = _project_and_music(drum_bar=1, minor_at=1)
-    short = candidate("c002")
-    short.end, short.material = 3.0, "action"
-    calm = candidate("c001")
-    calm.material = "non_action"
-    review = Review(verdicts={"c002": "keep"})
-    candidates = Candidates(candidates=[calm, short])
-
-    edl = director.run(project, music, candidates, review)
-    conflicts = director.unhonoured_keeps(project, music, candidates, review, edl)
-
-    assert conflicts == [
-        ("c002", "long enough only for the drumless opening, which takes no fight material")
-    ]
-
-
 def test_a_gated_candidate_nobody_rescued_stays_out():
     project, music = _project_and_music()
     blocked = candidate("c002")

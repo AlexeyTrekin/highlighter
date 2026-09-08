@@ -11,22 +11,30 @@ from app.stages import director
 BAR_S = 4 * 60 / 120.19
 
 
-def music_with(sections: list[Section], drum_bar: int | None = None) -> Music:
+def music_with(sections: list[Section], quiet_bars: int | None = None) -> Music:
+    """A track, optionally opening with `quiet_bars` bars of low-energy section.
+
+    The quiet opening is expressed as section energy rather than a drum entry: the rule it
+    carries is about section character, and a track may have no drums at all
+    (`spec/006_music.md`).
+    """
     grid = Grid(bpm=120.19, beat_s=60 / 120.19, bar_s=BAR_S, first_downbeat_s=0.21)
     bars = [
         Bar(index=i, t=0.21 + i * BAR_S, rms=1.0, low_energy=1.0, high_energy=0.1)
         for i in range(30)
     ]
-    backends = {}
-    if drum_bar is not None:
-        backends["drum_onset_s"] = f"{0.21 + drum_bar * BAR_S:.4f}"
+    if quiet_bars is not None:
+        sections = [
+            Section(name="intro", level="major", bar_start=0, bar_end=quiet_bars - 1, energy=0.5),
+            Section(name="s1", level="major", bar_start=quiet_bars, bar_end=29, energy=9.0),
+            *sections,
+        ]
     return Music(
         source="track",
         duration_s=30 * BAR_S,
         grid=grid,
         sections=sections,
         bars=bars,
-        backends=backends,
     )
 
 
@@ -119,18 +127,70 @@ def test_no_clip_straddles_a_major_boundary():
         )
 
 
-def test_action_material_stays_out_of_the_drumless_intro():
-    """v3 put an action clip in the quiet intro; it must now be ineligible there."""
+def test_action_material_stays_out_of_a_quiet_opening():
+    """v3 put an action clip in the quiet intro. It stays out whenever anything calmer
+    fits — the preference only yields when the collection offers nothing else
+    (`spec/006_music.md`)."""
     project = project_with([("v01", 20.0), ("v02", 20.0)], duration_s=12.0)
     candidates = candidates_for(
         [("c001", "v01", 20.0, 99.0, "action"), ("c002", "v02", 20.0, 1.0, "non_action")]
     )
 
-    edl = director.run(project, music_with([], drum_bar=3), candidates)
+    edl = director.run(project, music_with([], quiet_bars=3), candidates)
 
     early = [c for c in edl.clips if c.grid_slot < 3]
     assert early
     assert all(c.candidate_id == "c002" for c in early)
+
+
+def test_the_quiet_opening_yields_when_the_collection_has_no_calm_material():
+    """A camera that only ran during exchanges produces no non-fight window at all. Truncating
+    the reel to protect the preference would trade a whole section of footage for it
+    (`spec/006_music.md`)."""
+    project = project_with([("v01", 20.0), ("v02", 20.0)], duration_s=12.0)
+    candidates = candidates_for(
+        [("c001", "v01", 20.0, 0.9, "action"), ("c002", "v02", 20.0, 0.5, "action")]
+    )
+
+    edl = director.run(project, music_with([], quiet_bars=3), candidates)
+
+    assert [c.grid_slot for c in edl.clips][0] == 0, "the reel still starts at the first bar"
+    assert edl.clips[0].material == "action"
+    assert "action material" in edl.clips[0].order_reason, "and says what it had to settle for"
+
+
+def test_an_unclassified_window_still_beats_an_exchange_in_the_quiet_opening():
+    """Ranked preferences, not one rule: `unknown` loses to `non_action` and beats `action`."""
+    project = project_with([("v01", 20.0), ("v02", 20.0)], duration_s=12.0)
+    candidates = candidates_for(
+        [("c001", "v01", 20.0, 99.0, "action"), ("c002", "v02", 20.0, 0.1, "unknown")]
+    )
+
+    edl = director.run(project, music_with([], quiet_bars=3), candidates)
+
+    assert edl.clips[0].candidate_id == "c002"
+
+
+def test_a_track_that_opens_at_full_energy_has_no_quiet_opening():
+    """No drums, no intro, or straight in at full energy — the preference simply never fires,
+    and the best clip opens the reel."""
+    sections = [Section(name="s1", level="major", bar_start=0, bar_end=29, energy=9.0)]
+    project = project_with([("v01", 20.0), ("v02", 20.0)], duration_s=12.0)
+    candidates = candidates_for(
+        [("c001", "v01", 20.0, 99.0, "action"), ("c002", "v02", 20.0, 1.0, "non_action")]
+    )
+
+    edl = director.run(project, music_with(sections), candidates)
+
+    assert edl.clips[0].candidate_id == "c001"
+
+
+def test_a_track_with_no_sections_at_all_still_builds_a_reel():
+    """Section detection can find nothing on a short or uniform track."""
+    project = project_with([("v01", 20.0)], duration_s=12.0)
+    candidates = candidates_for([("c001", "v01", 20.0, 0.5, "unknown")])
+
+    assert director.run(project, music_with([]), candidates).clips
 
 
 @pytest.mark.parametrize(
@@ -230,7 +290,7 @@ def test_the_intro_prefers_known_calm_material_over_unclassified():
         [("c001", "v01", 20.0, 0.99, "unknown"), ("c002", "v02", 20.0, 0.10, "non_action")]
     )
 
-    edl = director.run(project, music_with([], drum_bar=3), candidates)
+    edl = director.run(project, music_with([], quiet_bars=3), candidates)
 
     assert edl.clips[0].material == "non_action"
 
@@ -247,7 +307,7 @@ def test_the_intro_prefers_the_least_fight_like_window():
     candidates.candidates[1].features.both_visible_frac = 0.0
     candidates.candidates[0].features.both_visible_frac = 1.0
 
-    edl = director.run(project, music_with([], drum_bar=3), candidates)
+    edl = director.run(project, music_with([], quiet_bars=3), candidates)
 
     assert edl.clips[0].candidate_id == "c002"
 
@@ -255,14 +315,18 @@ def test_the_intro_prefers_the_least_fight_like_window():
 def test_the_outro_fade_prefers_a_coda_over_a_fight_clip():
     """The v3 defect: the fade landed on one of the best action moves instead of a coda."""
     sections = [
-        Section(name="intro", level="major", bar_start=0, bar_end=5, energy=0.5),
-        Section(name="s1", level="major", bar_start=6, bar_end=9, energy=9.0),
+        # A two-bar opening, so the quiet-opening rule takes one calm clip and no more. With a
+        # longer one it consumes every calm window and the fade gets what is left — which is a
+        # different rule from the one under test here.
+        Section(name="intro", level="major", bar_start=0, bar_end=1, energy=0.5),
+        Section(name="s1", level="major", bar_start=2, bar_end=9, energy=9.0),
         Section(name="outro", level="major", bar_start=10, bar_end=11, energy=1.0),
     ]
-    project = project_with([(f"v{i:02d}", 20.0) for i in range(1, 9)], duration_s=24.0)
-    # The highest-scoring windows are all action; one calm clip exists for the fade.
+    project = project_with([(f"v{i:02d}", 20.0) for i in range(1, 10)], duration_s=24.0)
+    # The highest-scoring windows are all action; two calm clips, one for each end.
     entries = [(f"c{i:03d}", f"v{i:02d}", 20.0, 0.9 - i * 0.05, "action") for i in range(1, 8)]
     entries.append(("c008", "v08", 20.0, 0.1, "non_action"))
+    entries.append(("c009", "v09", 20.0, 0.1, "non_action"))
 
     edl = director.run(project, music_with(sections), candidates_for(entries))
 

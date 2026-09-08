@@ -103,7 +103,7 @@ assembly.
 | `frozen_tail` | no run of identical frames at a clip's end | `fail` — the source ran out |
 | `grid_alignment` | every cut within one frame of a bar line | `fail` |
 | `section_straddle` | no clip spans a `major` section boundary | `fail` |
-| `material_match` | no fight clip scheduled before the drums arrive | `warn` |
+| `material_match` | the track's low-energy opening got non-fight material | `warn` |
 | `fade_target` | names the clip the outro fade lands on | `warn` if it is a fight clip |
 | `duplicate_footage` | per-source 16×9 grey signatures compared across sources | `warn` |
 | `target_present` | personal mode: target detected in every clip | `warn` |

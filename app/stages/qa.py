@@ -314,48 +314,57 @@ def _major_starts(sections: list[Section]) -> set[int]:
 
 
 def material_match(edl: Edl, music: Music) -> Check:
-    """Fight material must not appear before the drums arrive.
+    """Whether the track's quiet opening got the non-fight material it prefers.
 
-    Until a detector classifies clips this cannot be verified, and the check says so rather
-    than passing on an assumption.
+    A `warn` and never a `fail`, because the preference legitimately yields: the collection may
+    hold no non-fight material, or the user may have pinned a clip here, and a reel truncated to
+    protect the rule would hide more than it saved (`spec/006_music.md`). Reported either way —
+    the point is that a mismatch is seen before the reel is watched, not that it is forbidden.
     """
-    drumless = music_stage.drumless_bars(music)
-    if drumless == 0:
+    quiet_bars = music_stage.quiet_opening_bars(music)
+    if quiet_bars == 0:
         return Check(
             name="material_match",
             target="reel",
             status="pass",
-            detail="no drumless intro to protect",
+            detail="the track opens at full energy; no quiet opening to protect",
         )
-    early = [c for c in edl.clips if c.grid_slot < drumless]
+    early = [c for c in edl.clips if c.grid_slot < quiet_bars]
     if not early:
         return Check(
             name="material_match",
             target="reel",
             status="pass",
-            detail=f"no clip sits in the {drumless} drumless bars",
+            detail=f"no clip sits in the {quiet_bars} quiet opening bars",
         )
-    unclassified = [c for c in early if c.material == "unknown"]
-    if not unclassified:
-        offenders = [c.candidate_id for c in early if c.material == "action"]
+
+    offenders = [c.candidate_id for c in early if c.material == "action"]
+    if offenders:
         return Check(
             name="material_match",
-            target=", ".join(offenders) or "reel",
-            status="fail" if offenders else "pass",
+            target=", ".join(offenders),
+            status="warn",
             detail=(
-                "fight material before the drums arrive"
-                if offenders
-                else f"{len(early)} non-fight clip(s) in the drumless intro"
+                "fight material in the quiet opening; nothing calmer could fill the slot, or it "
+                "was placed there on purpose"
+            ),
+        )
+    unclassified = [c for c in early if c.material == "unknown"]
+    if unclassified:
+        return Check(
+            name="material_match",
+            target=", ".join(c.candidate_id for c in unclassified),
+            status="warn",
+            detail=(
+                f"{len(unclassified)} of {len(early)} clip(s) in the {quiet_bars} quiet opening "
+                "bars are unclassified, so their placement cannot be verified"
             ),
         )
     return Check(
         name="material_match",
-        target=", ".join(c.candidate_id for c in unclassified),
-        status="warn",
-        detail=(
-            f"{len(unclassified)} of {len(early)} clip(s) in the {drumless} drumless bars are "
-            "unclassified, so their placement cannot be verified"
-        ),
+        target="reel",
+        status="pass",
+        detail=f"{len(early)} non-fight clip(s) in the quiet opening",
     )
 
 
