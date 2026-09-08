@@ -53,7 +53,7 @@ one is how an edit gets judged.
 | `created_at` | str | ISO-8601 |
 | `mode` | `"event"` \| `"personal"` | see `001_goal.md` |
 | `target_hint` | str \| null | free-text kit description, e.g. `"black jacket, white trousers"` |
-| `options` | object | `duration_s`, `width`, `height`, `fps`, `max_candidates` |
+| `options` | object | `duration_s`, `width`, `height`, `fps`, `max_candidates`, `weights` |
 
 `max_candidates` bounds how many windows are **presented for review** (`007_review_ui.md`),
 not how many are generated. Capping generation would decide which footage is even considered
@@ -112,8 +112,9 @@ top level so the manifest can carry the universal fields like every other one.
 | `start`, `end` | float | window bounds in source seconds |
 | `anchor` | float | the moment the cut is built around — the halt (`005_scoring.md`) |
 | `kind` | `"short"` \| `"long"` | which strategy produced it |
+| `origin` | `"halt"` \| `"fallback"` \| `"calm"` | how the window was proposed; the gates differ by origin (`005_scoring.md`) |
 | `material` | `"action"` \| `"non_action"` \| `"unknown"` | what the clip contains, which decides where in the music it may sit (`006_music.md`) |
-| `features` | object | `peak_activity`, `median_sharpness`, `both_visible_frac`, `min_gap`, `closing_speed` |
+| `features` | object | `peak_activity`, `median_sharpness`, `both_visible_frac`, `min_gap`, `closing_speed`, `gap_variation`, `measure_crossings` |
 | `score` | float | composite interestingness, 0–1 |
 | `agent` | object \| null | `{verdict, reason, confidence}` from the visual/VLM reviewer |
 | `target_side` | `"L"` \| `"R"` \| null | which tracked fighter is the target (personal mode) |

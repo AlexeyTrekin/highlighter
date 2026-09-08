@@ -19,7 +19,7 @@ from app.manifests.candidates import (
     max_bars,
     usable,
 )
-from app.stages.candidates import apply_gates
+from app.stages.candidates import clamp_to_source
 
 PROTOTYPE_BAR_S = 2.0434
 
@@ -39,7 +39,7 @@ def test_the_prototype_freezes_can_never_take_a_two_bar_slot(source_len, frozen_
     assert frozen_s == pytest.approx(slot - source_len, abs=0.01)
 
     window = candidate(end=source_len)
-    apply_gates(window, PROTOTYPE_BAR_S, source_len)
+    clamp_to_source(window, source_len, PROTOTYPE_BAR_S)
 
     assert max_bars(window, PROTOTYPE_BAR_S, source_len) < MIN_BARS
 
@@ -47,7 +47,7 @@ def test_the_prototype_freezes_can_never_take_a_two_bar_slot(source_len, frozen_
 def test_a_window_shorter_than_any_slot_is_dropped():
     """Under one bar there is nowhere in the reel it could go."""
     window = candidate(end=1.2)
-    apply_gates(window, PROTOTYPE_BAR_S, 1.2)
+    clamp_to_source(window, 1.2, PROTOTYPE_BAR_S)
 
     assert "source_too_short" in window.flags
     assert not usable(window)
@@ -55,7 +55,7 @@ def test_a_window_shorter_than_any_slot_is_dropped():
 
 def test_a_window_that_fills_only_the_opening_survives_the_gate():
     window = candidate(end=2.6)
-    apply_gates(window, PROTOTYPE_BAR_S, 2.6)
+    clamp_to_source(window, 2.6, PROTOTYPE_BAR_S)
 
     assert window.flags == []
     assert max_bars(window, PROTOTYPE_BAR_S, 2.6) == OPENING_MIN_BARS
@@ -63,7 +63,7 @@ def test_a_window_that_fills_only_the_opening_survives_the_gate():
 
 def test_a_source_that_fills_the_slot_is_kept():
     window = candidate(end=5.13)
-    apply_gates(window, PROTOTYPE_BAR_S, 5.13)
+    clamp_to_source(window, 5.13, PROTOTYPE_BAR_S)
 
     assert window.flags == []
     assert usable(window)
@@ -81,7 +81,7 @@ def test_a_window_reaching_past_its_source_is_clamped_to_the_file():
     """A window may claim an end beyond the file; only decoded footage counts, and the clamp
     happens here so no later stage has to remember it."""
     window = candidate(end=8.0)
-    apply_gates(window, bar_s=3.0, source_duration=2.5)
+    clamp_to_source(window, 2.5, 3.0)
 
     assert window.end == pytest.approx(2.5)
     assert window.anchor == pytest.approx(2.5)
@@ -92,9 +92,9 @@ def test_the_gate_is_tempo_dependent():
     """The same source passes at one tempo and fails at another, so the gate must run after
     the grid is known."""
     fast = candidate(end=2.2)
-    apply_gates(fast, bar_s=2.0, source_duration=2.2)
+    clamp_to_source(fast, 2.2, 2.0)
     assert fast.flags == []
 
     slow = candidate(end=2.2)
-    apply_gates(slow, bar_s=2.5, source_duration=2.2)
+    clamp_to_source(slow, 2.2, 2.5)
     assert "source_too_short" in slow.flags

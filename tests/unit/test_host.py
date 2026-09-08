@@ -2,7 +2,7 @@ import subprocess
 
 import pytest
 
-from app import host
+from app import assets, host
 
 
 def test_check_python_passes_on_supported_interpreter():
@@ -12,10 +12,24 @@ def test_check_python_passes_on_supported_interpreter():
     assert check.name == "python"
 
 
-def test_run_checks_covers_every_prerequisite():
+def test_run_checks_covers_the_host_tools_and_every_model():
     names = [c.name for c in host.run_checks()]
 
-    assert names == ["python", "ffmpeg", "ffprobe"]
+    assert names[:3] == ["python", "ffmpeg", "ffprobe"]
+    assert set(assets.REGISTRY) <= set(names), "a model nothing checks for fails mid-analysis"
+
+
+def test_a_missing_model_is_reported_with_the_command_that_fixes_it(monkeypatch, tmp_path):
+    monkeypatch.setattr(assets, "MODELS_DIR", tmp_path)
+    monkeypatch.setattr(
+        assets.Asset, "path", property(lambda self: tmp_path / self.name), raising=False
+    )
+
+    checks = {c.name: c for c in host.check_models()}
+
+    missing = checks[assets.YOLOV8N.name]
+    assert not missing.ok
+    assert "fetch-models" in missing.hint
 
 
 @pytest.mark.parametrize(

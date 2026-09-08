@@ -22,16 +22,41 @@ BPM = 120.0
 BAR_S = 4 * 60.0 / BPM
 
 
+@pytest.fixture(autouse=True)
+def two_fighters(monkeypatch):
+    """Put two fighters in every frame of the synthetic footage.
+
+    These fixtures are flat colour fields, so a real detector correctly finds nobody in them
+    and every candidate is gated out. What these tests check is that the manifests agree with
+    each other; detection itself is covered against real frames in `test_detect.py`.
+
+    The pair closes over the clip so the windows carry a plausible gap and closing speed.
+    """
+
+    def people(frame):
+        height, width = frame.shape[:2]
+        margin = width * 0.28 * (0.4 + 0.6 * float(frame[:, :, 0].mean()) / 255.0)
+        left = (margin, height * 0.1, margin + width * 0.2, height * 0.95)
+        right = (width - margin - width * 0.2, height * 0.1, width - margin, height * 0.95)
+        return [(left, 0.9), (right, 0.9)]
+
+    monkeypatch.setattr("app.video.detect.detect_people", people)
+
+
 @pytest.fixture
-def prepared(tmp_path, video_factory, track_factory):
+def prepared(tmp_path, moving_video_factory, track_factory, exchange):
     """A project with a known track and sources of deliberately mixed usability."""
     media = tmp_path / "media"
     media.mkdir()
-    # Long enough for several bars, one 24 fps source, and one too short to fill a slot.
-    video_factory(media, "a_long", list(range(40, 240, 2)) * 2, fps=30)
-    video_factory(media, "b_long", list(range(60, 220, 2)) * 2, fps=24)
-    video_factory(media, "c_mid", list(range(30, 200, 3)), fps=30)
-    video_factory(media, "d_tiny", [90] * 15, fps=30)
+    # Each source carries an exchange that ends in a halt. Long enough for several bars, one
+    # at 24 fps, and one too short to fill even the opening slot.
+    moving_video_factory(media, "a_long", exchange(quiet=60, busy=120, tail=90), fps=30)
+    moving_video_factory(media, "b_long", exchange(quiet=48, busy=96, tail=72), fps=24)
+    moving_video_factory(media, "c_mid", exchange(quiet=30, busy=90, tail=60), fps=30)
+    moving_video_factory(media, "d_tiny", exchange(quiet=3, busy=6, tail=6), fps=30)
+    # Something calm for the drumless intro: with every source an exchange, the material rule
+    # correctly refuses to open the reel and there is nothing to build.
+    moving_video_factory(media, "e_calm", [(i % 2) * 2 for i in range(240)], fps=30)
 
     track = track_factory(tmp_path / "track.wav", bpm=BPM, bars=16, drums_from_bar=4)
 
@@ -51,7 +76,7 @@ def prepared(tmp_path, video_factory, track_factory):
 def test_ingest_names_sources_in_sorted_order(prepared):
     _, project = prepared
 
-    assert [s.id for s in project.sources] == ["v01", "v02", "v03", "v04"]
+    assert [s.id for s in project.sources] == ["v01", "v02", "v03", "v04", "v05"]
     assert [s.original_name for s in project.sources] == sorted(
         s.original_name for s in project.sources
     )
@@ -79,6 +104,7 @@ def test_drum_entry_lands_on_a_bar_line(prepared):
 
 def test_short_sources_are_gated_out(prepared):
     root, project = prepared
+    pipeline.run_analyze(root, project)
     pipeline.run_music(root, project)
 
     found = pipeline.run_candidates(root, project)
@@ -90,6 +116,7 @@ def test_short_sources_are_gated_out(prepared):
 
 def test_edl_is_contiguous_and_every_clip_fits_its_source(prepared):
     root, project = prepared
+    pipeline.run_analyze(root, project)
     pipeline.run_music(root, project)
     pipeline.run_candidates(root, project)
 
@@ -108,6 +135,7 @@ def test_edl_is_contiguous_and_every_clip_fits_its_source(prepared):
 
 def test_rerunning_the_director_produces_an_identical_edl(prepared):
     root, project = prepared
+    pipeline.run_analyze(root, project)
     pipeline.run_music(root, project)
     pipeline.run_candidates(root, project)
 
@@ -119,6 +147,7 @@ def test_rerunning_the_director_produces_an_identical_edl(prepared):
 
 def test_manifests_round_trip_through_disk(prepared):
     root, project = prepared
+    pipeline.run_analyze(root, project)
     pipeline.run_music(root, project)
     pipeline.run_candidates(root, project)
     pipeline.run_director(root, project)

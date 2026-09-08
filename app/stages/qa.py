@@ -47,7 +47,7 @@ def not_yet_implemented() -> list[Check]:
             status="warn",
             detail=f"not implemented yet; arrives with {step}",
         )
-        for name, step in (("duplicate_footage", "WAL 2.1"), ("target_present", "WAL 5.1"))
+        for name, step in (("duplicate_footage", "WAL 3.1"), ("target_present", "WAL 5.1"))
     ]
 
 

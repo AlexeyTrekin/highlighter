@@ -10,6 +10,8 @@ import subprocess
 import sys
 from dataclasses import dataclass
 
+from app import assets
+
 MIN_PYTHON: tuple[int, int] = (3, 12)
 STABILIZE_FILTER: str = "vidstabtransform"
 
@@ -84,5 +86,18 @@ def has_ffmpeg() -> bool:
     return shutil.which("ffmpeg") is not None and shutil.which("ffprobe") is not None
 
 
+def check_models() -> list[Check]:
+    """Model files are prerequisites like any other host tool.
+
+    Reported here so a missing one surfaces before a stage discovers it minutes into an
+    analysis run.
+    """
+    checks: list[Check] = []
+    for asset in assets.REGISTRY.values():
+        ok, detail = assets.verify(asset)
+        checks.append(Check(asset.name, ok, detail, "" if ok else "run `hlreel fetch-models`"))
+    return checks
+
+
 def run_checks() -> list[Check]:
-    return [check_python(), check_ffmpeg(), check_ffprobe()]
+    return [check_python(), check_ffmpeg(), check_ffprobe(), *check_models()]

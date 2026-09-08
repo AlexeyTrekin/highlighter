@@ -8,18 +8,20 @@ from pathlib import Path
 
 from app import project as project_store
 from app.manifests import base
+from app.manifests.analysis import Analysis
 from app.manifests.candidates import Candidates
 from app.manifests.edl import Edl
 from app.manifests.music import Music
 from app.manifests.project import Project
 from app.manifests.qa import Qa
+from app.stages import analyze as analyze_stage
 from app.stages import candidates as candidates_stage
 from app.stages import director as director_stage
 from app.stages import music as music_stage
 from app.stages import qa as qa_stage
 from app.stages import render as render_stage
 
-ORDER: tuple[str, ...] = ("music", "candidates", "director", "render")
+ORDER: tuple[str, ...] = ("analyze", "music", "candidates", "director", "render")
 
 
 class StageBlocked(RuntimeError):
@@ -55,8 +57,34 @@ def run_music(root: Path, project: Project) -> Music:
     return music
 
 
+def run_analyze(root: Path, project: Project, force: bool = False) -> None:
+    """Decode every source that has not been analysed yet.
+
+    Resumable per source: this is the only stage that reads whole videos, and re-doing an
+    hour of it because the last file failed would make the checkpoint pointless. `--force`
+    has to reach in here rather than stopping at the stage boundary — without it the CLI
+    reports the stage ran while every source was skipped, and a detector change silently
+    leaves the whole project on stale numbers.
+    """
+    for source in project.sources:
+        target = analyze_stage.analysis_path(root, source.id)
+        if target.is_file() and not force:
+            continue
+        base.write(target, analyze_stage.analyse(source))
+
+
+def load_analyses(root: Path, project: Project) -> dict[str, Analysis]:
+    found: dict[str, Analysis] = {}
+    for source in project.sources:
+        path = analyze_stage.analysis_path(root, source.id)
+        if not path.is_file():
+            raise StageBlocked(f"{path.name} is missing; run the analyze stage first")
+        found[source.id] = base.read(path, Analysis)
+    return found
+
+
 def run_candidates(root: Path, project: Project) -> Candidates:
-    found = candidates_stage.run(project, load_music(root))
+    found = candidates_stage.run(project, load_music(root), load_analyses(root, project))
     base.write(project_store.candidates_path(root), found)
     return found
 
@@ -76,11 +104,14 @@ def run_render(root: Path, project: Project) -> Qa:
     return report
 
 
+# Stages whose own outputs are per-unit checkpoints, so `--force` has to be handed down to
+# them rather than stopping at the stage boundary.
 RUNNERS = {
-    "music": run_music,
-    "candidates": run_candidates,
-    "director": run_director,
-    "render": run_render,
+    "analyze": run_analyze,
+    "music": lambda root, project, force=False: run_music(root, project),
+    "candidates": lambda root, project, force=False: run_candidates(root, project),
+    "director": lambda root, project, force=False: run_director(root, project),
+    "render": lambda root, project, force=False: run_render(root, project),
 }
 
 
@@ -96,7 +127,7 @@ def run(root: Path, project: Project, stages: tuple[str, ...], force: bool) -> l
             continue
         project_store.mark_running(root, project, stage)
         try:
-            RUNNERS[stage](root, project)
+            RUNNERS[stage](root, project, force)
         except Exception as error:
             project_store.mark_failed(root, project, stage, str(error))
             raise

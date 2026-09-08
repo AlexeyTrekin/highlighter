@@ -37,10 +37,17 @@ mean fighter height. Normalising by height makes it invariant to pan and zoom. A
 In HEMA, after a touch both fighters stop and reset for the referee. That stop is far more
 detectable than the hit itself, and it is what anchors a cut.
 
-**Halt** = the largest negative derivative of smoothed activity that is followed by at least
-0.8 s below the clip's baseline. The candidate's `anchor` is the halt.
+**Halt** = a fall in smoothed activity followed by at least 0.8 s that stays settled. The
+candidate's `anchor` is the halt.
 
-**Onset** = the last point before the halt where activity rose above twice the rolling median.
+**Settled** is measured against the clip's own quiet-to-busy range — the 25th and 95th
+percentiles of its activity — not against its median. A clip is mostly *not* fencing:
+approach, reset, the referee talking. Its median therefore sits at the resting level, and
+nothing can fall below it, so a median-based test finds no halts at all on exactly the
+material this is for.
+
+**Onset** = walking back from the halt, the last moment activity was still at rest. The clip
+then opens on the approach rather than mid-exchange.
 
 Window = `onset − 0.5 bar` … `halt + 0.3 s`, later snapped to a whole number of bars by the
 director.
@@ -63,6 +70,64 @@ approaches the opponent in the 300 ms before the halt.
 Keypoints come from a pose model over the two fighter boxes. This is an optional backend
 (`004_stack.md`); when it is absent, `closing_speed` is null and the composite score falls
 back to the box-centre convergence rate, which is coarser but free.
+
+## Material: fencing, or something else
+
+`006_music.md` forbids fight material before the drums arrive, and `002_manifests.md` carries
+a `material` field, so something has to decide which a window is.
+
+**Motion cannot make this distinction.** A hug is vigorous. A salute can include a clash. Any
+rule keyed on how much movement there is will call them fencing, and the reference footage
+proved it: every window a motion-based rule called non-fight was simply fencing measured from
+slightly further out.
+
+What separates them is what the **distance between the fighters does over time**. Fencing
+closes to hit and breaks to reset, repeatedly. An embrace comes together and stays. A salute
+or a walk-on holds its distance. So:
+
+> **action** = both fighters visible, in measure at some point, and the gap *swings* —
+> crossing the measure threshold, or ranging widely.
+>
+> **non_action** = one person in frame, or the gap holds steady and never crosses into
+> measure, however energetic the window looks.
+>
+> **unknown** = anything else.
+
+`unknown` is a real verdict, not a placeholder. Fencing is a continuum and a window near the
+thresholds is genuinely undecided; the director treats it as unconstrained and
+`material_match` reports that it could not verify placement rather than passing
+(`008_render.md`). A guess dressed as a classification is worse than an honest absence — it
+puts a lunge under a quiet chord behind a green check.
+
+`material` MUST also remain `unknown` when no classifier has run at all.
+
+### Non-exchange windows must be proposed, not just recognised
+
+A halt-anchored candidate stage proposes windows built around exchanges, so warm-ups, salutes,
+walk-ons and hugs are never candidates in the first place — none of them produce a halt. The
+drumless intro then has nothing honest to draw on however good the classifier is.
+
+The stage MUST therefore also propose windows of two further kinds, both carrying
+`origin: "calm"`:
+
+- **stable-gap windows** — stretches where the distance between the fighters does not move;
+- **solo windows** — stretches where exactly *one* fighter is on camera.
+
+The second is not a special case of the first: measuring a gap needs two fighters, so a
+one-person walk-on has no gap to hold steady and stable-gap detection can never find one.
+"Exactly one" and not "at most one" — a stretch with nobody detected is a camera on the floor
+or a failed detection, and the director prefers fewer fighters on camera, so counting empty
+frames would open the reel on nothing.
+
+The both-fighters-visible gate does not apply to `calm` windows: an exchange is worthless
+without both fighters in frame, while a walk-on with one person is exactly what the intro
+wants.
+
+A `calm` window MUST be at least as long as the slot it is placed in. A clip is anchored at
+its window end and reaches back the length of its slot; for an exchange that reach-back is the
+approach and is wanted, but for a calm window it renders footage no classifier examined —
+usually the tail of the exchange that preceded the stillness, which is how fight material
+reaches the drumless intro behind a passing check.
 
 ## Composite score
 

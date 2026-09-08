@@ -3,7 +3,7 @@ import json
 import pytest
 from typer.testing import CliRunner
 
-from app import __version__, host
+from app import __version__, assets, host
 from app.cli import EXIT_PREREQUISITE, cli
 
 runner = CliRunner()
@@ -26,7 +26,9 @@ def test_doctor_reports_every_prerequisite():
     result = runner.invoke(cli, ["doctor", "--json"])
 
     payload = json.loads(result.stdout)
-    assert {c["name"] for c in payload["checks"]} == {"python", "ffmpeg", "ffprobe"}
+    names = {c["name"] for c in payload["checks"]}
+    assert {"python", "ffmpeg", "ffprobe"} <= names
+    assert set(assets.REGISTRY) <= names
 
 
 @pytest.mark.parametrize(

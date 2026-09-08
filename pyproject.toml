@@ -45,6 +45,7 @@ include = ["app*"]
 testpaths = ["tests"]
 markers = [
     "needs_ffmpeg: requires ffmpeg/ffprobe on the host; skipped when absent",
+    "needs_model: requires fetched model weights; skipped when absent",
 ]
 
 [tool.ruff]
