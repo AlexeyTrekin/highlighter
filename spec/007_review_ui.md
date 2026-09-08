@@ -57,12 +57,21 @@ Optional and skippable. Three modes:
 - `weighted` — the user sets relative weights and fills **opening** and **ending** buckets;
   the director orders within those constraints.
 
+A position the user set is **binding**. The director places only the clips left to it, and a
+re-run never rearranges a pinned one (`002_manifests.md`). Where a pin cannot be honoured —
+the clip was dropped, or its section no longer exists — the director surfaces the conflict
+rather than quietly resolving it.
+
 ### 5. Final tweaks
 
 After a render: the EDL laid over the music waveform with section bands, showing which clip
-occupies which bars. Supported edits are add, remove, swap, and reorder — the operations that
-keep the bar grid intact. Anything more expressive is a conversation with the agent, not a
-widget.
+occupies which bars. Supported edits are add, remove, swap, reorder, and **merge a clip into
+its neighbour** — the operations that keep the bar grid intact. Anything more expressive is a
+conversation with the agent, not a widget.
+
+Merge exists specifically so the one-bar opening (`006_music.md`) can be undone: it is a
+default chosen because the alternative is an arbitrary cut, not because two seconds is always
+right, and the viewer is the one who can see whether it works.
 
 ## Contract with the agent
 

@@ -8,7 +8,6 @@ writes manifests; the video is a deterministic render of `edl.json`.
 ```
 <project>/
   project.json          project identity, options, per-stage status
-  sources/vNN.mp4       normalised copies or symlinks of the inputs
   analysis/vNN.json     per-sampled-frame features
   candidates.json       candidate windows with scores and verdicts
   identity.json         kit clusters and target assignment   (personal mode)
@@ -18,10 +17,21 @@ writes manifests; the video is a deterministic render of `edl.json`.
   review.json           human verdicts, trims, ordering hints
   edl.json              THE CONTRACT
   render/
-    cNNN.mp4            rendered clips
+    cNNN_<digest>.mp4   rendered clips
     qa.json             automated quality checks
-    highlight_vN.mp4    deliverable
+  highlight_vN.mp4      deliverable
 ```
+
+**Sources are referenced, not copied.** `project.sources[].path` is an absolute path to the
+user's own file. Copying tens of gigabytes of footage into every project to gain a stable
+`sources/vNN.mp4` is a poor trade for a local tool; the cost is that moving or deleting the
+footage breaks the project, and `ingest` is where that would be detected.
+
+A rendered clip's filename carries a digest of everything affecting its pixels, so a re-cut
+EDL cannot silently reuse the previous cut's clip at the same slot.
+
+The deliverable is **versioned and never overwritten**: comparing a new cut against the last
+one is how an edit gets judged.
 
 ## Universal rules
 
@@ -44,6 +54,11 @@ writes manifests; the video is a deterministic render of `edl.json`.
 | `mode` | `"event"` \| `"personal"` | see `001_goal.md` |
 | `target_hint` | str \| null | free-text kit description, e.g. `"black jacket, white trousers"` |
 | `options` | object | `duration_s`, `width`, `height`, `fps`, `max_candidates` |
+
+`max_candidates` bounds how many windows are **presented for review** (`007_review_ui.md`),
+not how many are generated. Capping generation would decide which footage is even considered
+by file order, which is arbitrary; the candidate stage examines every source and ranking
+decides what a human sees.
 | `music_path` | str \| null | absolute path to the track; null means procedural |
 | `sources` | array | one record per input file |
 | `stages` | object | stage name → `{status, started_at, finished_at, error}` |
@@ -97,6 +112,7 @@ top level so the manifest can carry the universal fields like every other one.
 | `start`, `end` | float | window bounds in source seconds |
 | `anchor` | float | the moment the cut is built around — the halt (`005_scoring.md`) |
 | `kind` | `"short"` \| `"long"` | which strategy produced it |
+| `material` | `"action"` \| `"non_action"` \| `"unknown"` | what the clip contains, which decides where in the music it may sit (`006_music.md`) |
 | `features` | object | `peak_activity`, `median_sharpness`, `both_visible_frac`, `min_gap`, `closing_speed` |
 | `score` | float | composite interestingness, 0–1 |
 | `agent` | object \| null | `{verdict, reason, confidence}` from the visual/VLM reviewer |
@@ -105,6 +121,14 @@ top level so the manifest can carry the universal fields like every other one.
 
 `agent.verdict` ∈ `keep` | `drop` | `unsure`. A dropped candidate stays in the file with its
 reason; nothing is deleted, so a decision can always be audited or reversed.
+
+`material` defaults to `unknown` and MUST stay `unknown` until something actually classifies
+the clip. The director treats `unknown` as unconstrained rather than assuming either way, and
+the `material_match` check (`008_render.md`) reports that it could not verify placement —
+guessing here would put a fight clip in a drumless intro under a green check.
+
+`start` and `end` are clamped to the source's duration by the gating stage, so no later stage
+has to defend against a window that reaches past the end of its file.
 
 ## `identity.json` (personal mode only)
 
@@ -121,12 +145,16 @@ a path to a cropped peak frame used for the confirmation UI.
 | `path` | str \| null | |
 | `duration_s` | float | |
 | `grid` | object | `bpm`, `beat_s`, `bar_s`, `first_downbeat_s`, `beats_per_bar` |
-| `sections[]` | array | `{name, bar_start, bar_end, energy, arousal, valence, mood_tags[]}` |
+| `sections[]` | array | `{name, level, bar_start, bar_end, energy, arousal, valence, mood_tags[]}` |
 | `chord_change_bars` | array of int | bar indices where harmony shifts |
 | `bars[]` | array | per-bar `{index, t, rms, low_energy, high_energy, chroma_top[]}` |
 | `backends` | object | which analyser produced each field, for reproducibility |
 
 `grid.bpm` is the **fitted** tempo, not a reported or rounded one (`006_music.md`).
+
+`sections[].level` is `major` or `minor` (`006_music.md`). Both are present in the same list:
+a minor boundary inside a major section is a section in its own right, so the director can
+treat it as a permitted cut point without losing the enclosing structure.
 
 ## `review.json`
 
@@ -150,16 +178,17 @@ review step genuinely optional.
   "stage": "director",
   "grid": {"bpm": 117.45, "beat_s": 0.5109, "bar_s": 2.0435,
            "first_downbeat_s": 0.232, "beats_per_bar": 4},
-  "music_sections": [{"name": "intro", "bars": [0, 5], "energy": 0.13,
-                      "mood_tags": ["calm"]}],
+  "music_sections": [{"name": "intro", "level": "major", "bar_start": 0, "bar_end": 5,
+                      "energy": 0.13, "mood_tags": ["calm"]}],
   "output": {"width": 1920, "height": 1080, "fps": 30, "duration_s": 61.3},
   "clips": [
     {"candidate_id": "c067", "source_id": "v49",
      "in": 1.37, "out": 5.46,
      "bars": 2, "grid_slot": 6, "section": "s1",
      "crop": {"mode": "tracked", "zoom": 1.0},
-     "speed": 1.0, "stabilize": true,
+     "speed": 1.0, "stabilize": true, "material": "action",
      "target_side": "L", "score": 0.83,
+     "order_reason": "highest score in section s1; lands its halt on the downbeat",
      "why": "lunge, both visible, drop-landing"}
   ]
 }
@@ -173,10 +202,31 @@ review step genuinely optional.
   `{x, y, w, h}`.
 - `speed` is reserved (always `1.0` — slow motion is deferred, `001_goal.md`) and MUST be accepted by
   the renderer so the field can be used without a schema change.
-- `why` is a human-readable justification. It exists so the user can argue with the edit.
+- `music_sections` carries the same `Section` shape as `music.json`, copied verbatim, so the
+  EDL stays self-contained without introducing a second spelling of the same thing. Checks
+  that judge placement read it from here rather than from `music.json`: a hand-set EDL may not
+  match the project's current music analysis, and judging it against sections it was never
+  built from reports a fault that is not there.
+- `material` is copied from the candidate for the same reason — placement checks must not have
+  to reach back into `candidates.json`.
+- `why` is a human-readable justification of the clip. It exists so the user can argue with
+  the edit.
+- `order_reason` justifies the clip's **position**, which is a separate question from whether
+  the clip is good.
 
 An EDL is **self-contained enough to re-render** given the source files: no stage downstream
 of the director may consult `candidates.json` or `review.json`.
+
+### The director is deterministic
+
+The same inputs MUST produce a byte-identical `edl.json`. Ordering that depends on set
+iteration, dictionary insertion, timestamps or unseeded randomness is a defect, not a
+detail: when clips move between runs the user cannot tell an improvement from drift, and a
+position they were happy with silently disappears.
+
+Together with `order_reason`, this makes every position accountable — it either follows from
+an input the user can see, or it is a bug. Positions the user pinned
+(`review.json.order`) are never overridden; the director places only what was left to it.
 
 ## `render/qa.json`
 
