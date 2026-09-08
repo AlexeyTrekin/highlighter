@@ -9,7 +9,7 @@ Status markers: `[ ]` planned · `[ready-for-review]` done, in MR · `[v]` merge
 ## Phase 0: Foundation
 
 ### 0.1 De-dockerize the agent instructions, write the spec set, host build
-[ready-for-review] Remove every container rule from `AGENTS.md`, `instructions/lang/python.md` and the
+[v] Remove every container rule from `AGENTS.md`, `instructions/lang/python.md` and the
 subagent definitions; add `spec/001`–`spec/009`; add `Makefile`, `pyproject.toml`, the
 `hlreel doctor` command and a first test.
 
@@ -34,12 +34,56 @@ later.
 ## Phase 1: Walking skeleton
 
 ### 1.1 End-to-end reel with naive selection
-[ ] ingest → probe → naive candidates → fitted music grid → naive EDL → render.
+[ready-for-review] ingest → probe → naive candidates → fitted music grid → naive EDL → render,
+plus the five structural rules the prototype's defects exposed.
 
 Value comes from a watchable reel, not from a good one. Getting the whole path working with
 deliberately dumb selection makes every later quality change measurable against something,
-and surfaces the render-stage hazards (cumulative rounding, crop flash) while the pipeline is
-small enough to debug.
+and surfaces the render-stage hazards while the pipeline is small enough to debug.
+
+The prototype's v2/v3 reels were analysed rather than trusted, and three user-reported defects
+turned out to have two causes:
+
+**Tempo.** librosa 1.0.0 measures 120.19 BPM prior-independently where the prototype recorded
+117.45. The drums enter at 12.196 s; the 120.19 grid puts that bar line at 12.19 s, the
+117.45 grid at 12.49 s. That 0.3 s is why a quiet intro clip ran into the drums, and the
+error accumulates — by the outro it is over a second, which is why the fade landed on an
+action clip instead of a coda. Two complaints, one root cause. The old number is superseded,
+not a target to reproduce.
+
+**Slots longer than their source.** v42 has 3.74 s and was given a 4.09 s slot; v31 has
+3.10 s. The renderer reached past end-of-file and repeated the last decoded frame — the two
+freezes the user saw. The fix is a candidate gate, not a renderer fallback: shortening the
+clip instead would break the bar grid for everything after it. Rendering now refuses to emit
+a frame it did not decode, so this fails loudly rather than shipping.
+
+The remaining complaint — a cut at bar 3 of a six-bar intro, where nothing happens musically —
+drove hierarchical section detection. The sub-band steps ×1.7 at bar 1 and ×43 at bar 6; one
+threshold catches the second and is deaf to the first, though a listener hears both. Cut
+points are now ranked (major boundary > minor > plain bar), and material must match section
+character, because an action clip in a drumless intro reads as a mistake however well it is
+aligned.
+
+Two things surfaced during implementation that the analysis had not predicted:
+
+**Downbeat phase cannot be voted for.** Scoring candidate phases by onset strength — the
+prototype's method and the obvious one — picked beat 4 of the bar on this track, because a
+metal backbeat is louder than its kick. Low-band-only onsets did no better. The phase is now
+anchored on the detected drum entry, which is a downbeat in almost any arrangement.
+
+**A grid check must not test the thing it was fitted from.** Validating bar lines against the
+drum entry became circular once that entry anchors the phase. The check now tests the
+*period* against a least-squares fit of the tracked beats, which is the half that drifts. Its
+first honest form — RMS distance from each beat to a rigid grid — condemned a correct grid at
+102 ms, because beat positions wander by a frame or two on any real track and that wander
+accumulates. A measure that fails a correct grid is worse than no measure.
+
+**The inherited brightness check was wrong.** The prototype flagged any frame-to-frame
+brightness change above 12, and on the first real render that failed a good reel: one clip
+pans into bright sky, moving +17.7 then +14.3 in the same direction. The artifact it exists to
+catch is a *spike* — a frame that departs from both neighbours and reverts — so the rule now
+requires exactly that. Across the other fourteen clips the worst frame-to-frame move was 3.9,
+so the tightened rule has plenty of headroom.
 
 ## Phase 2: Good moments
 

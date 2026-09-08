@@ -35,6 +35,16 @@ slower and is not permitted in the frame loop.
 Source frame rates vary (24 and 30 are both normal); frames are duplicated or dropped to
 reach the output rate.
 
+**The renderer MUST NOT emit a frame it did not decode.** Running past the end of a source is
+a hard error naming the clip, never a repeated final frame: a repeat is invisible to the
+encoder and to every downstream check, but a viewer sees the picture stop dead. The director
+is responsible for never scheduling a slot longer than its source can fill
+(`005_scoring.md`), so reaching this error means an upstream invariant broke and the fix
+belongs there, not in a renderer fallback.
+
+Frame duplication for frame-rate conversion is a different thing and stays: it repeats a
+frame the renderer *has* decoded, to fill a 24 → 30 fps gap.
+
 **Never crop a frame that has already been cropped.** The frame-duplication path must copy
 from the retained source frame, not from the previously emitted output frame. Cropping an
 already-cropped-and-upscaled frame produced a visible zoom flash every fifth frame on 24 fps
@@ -89,8 +99,12 @@ assembly.
 
 | check | rule | status on violation |
 |---|---|---|
-| `brightness_jump` | no `\|Δ mean brightness\| > 12` between consecutive frames | `fail` — this is the crop-flash signature |
+| `brightness_jump` | no frame whose mean brightness departs from **both** neighbours by > 12 in the same direction | `fail` — this is the crop-flash signature |
+| `frozen_tail` | no run of identical frames at a clip's end | `fail` — the source ran out |
 | `grid_alignment` | every cut within one frame of a bar line | `fail` |
+| `section_straddle` | no clip spans a `major` section boundary | `fail` |
+| `material_match` | no fight clip scheduled before the drums arrive | `warn` |
+| `fade_target` | names the clip the outro fade lands on | `warn` if it is a fight clip |
 | `duplicate_footage` | per-source 16×9 grey signatures compared across sources | `warn` |
 | `target_present` | personal mode: target detected in every clip | `warn` |
 | `consecutive_setup` | no two adjacent clips from the same source | `warn` |
@@ -98,6 +112,11 @@ assembly.
 
 A `fail` blocks presenting the reel as finished. The agent MUST report warnings rather than
 suppress them.
+
+`brightness_jump` tests for a spike, not for any large change. The artifact it exists to catch
+is a frame that jumps and reverts; a camera panning into the sky moves as far in one frame and
+stays there. Flagging every large frame-to-frame delta fails ordinary footage and trains the
+reader to ignore the check.
 
 `consecutive_setup` approximates the acceptance criterion in `001_goal.md`, which forbids
 adjacent clips from the same bout and angle *unless the second escalates*. Source identity is

@@ -38,15 +38,15 @@ Stabilisation is a render-time operation applied **after** the tracked crop
 
 | stage | reads | writes | may re-decode video |
 |---|---|---|---|
-| `ingest` | input paths | `project.json`, `sources/` | probe only |
-| `analyze` | `sources/` | `analysis/vNN.json` | yes |
+| `ingest` | input paths | `project.json` | probe only |
+| `analyze` | source files | `analysis/vNN.json` | yes |
 | `candidates` | `analysis/*` | `candidates.json` | no |
 | `identity` | `analysis/*`, `candidates.json` | `identity.json`, snapshots | frame grabs only |
 | `music` | track or nothing | `music.json` | n/a |
-| `proxies` | `sources/`, `candidates.json` | `proxies/`, `strips/` | yes |
+| `proxies` | source files, `candidates.json` | `proxies/`, `strips/` | yes |
 | `review` | `candidates.json` | `review.json` | no (serves files) |
 | `director` | `candidates.json`, `music.json`, `review.json?`, `identity.json?` | `edl.json` | no |
-| `render` | `edl.json`, `sources/`, track | `render/` | yes |
+| `render` | `edl.json`, source files, track | `render/`, `highlight_vN.mp4` | yes |
 
 A stage MUST NOT write outside the manifests listed for it. `analyze` is the only stage that
 performs a full decode of every source, and it MUST be able to run per-source so work shards
@@ -55,8 +55,10 @@ cleanly across processes.
 ## Idempotency and resumability
 
 - Every stage is **resumable at the unit of its output file**: `analyze` skips a source whose
-  `analysis/vNN.json` exists, `render` skips a clip whose `render/cNNN.mp4` exists and is
-  non-empty.
+  `analysis/vNN.json` exists, `render` skips a clip whose rendered file already holds every
+  frame its slot needs. Existence alone is not enough: an interrupted encode leaves a
+  non-empty but short file, and a short clip drags every later cut off the beat while every
+  other check stays green.
 - A stage MUST record `status` in `project.json.stages` before and after running, so an
   interrupted run is visible rather than being mistaken for a completed one.
 - Re-running a completed stage without `--force` is a no-op that exits successfully.

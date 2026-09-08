@@ -29,8 +29,24 @@ Structure is recoverable from three per-bar signals, all cheap:
 - **chroma top-3** — harmonic movement.
 
 Section boundaries are jumps in low-band energy and shifts in the chroma set;
-`librosa.segment.agglomerative` over beat-synced MFCC + chroma cross-checks them. This
-baseline recovered intro / drop / B-section / climax / outro cleanly from a 60 s stock track.
+`librosa.segment.agglomerative` over beat-synced MFCC + chroma cross-checks them.
+
+### Detection is hierarchical
+
+A single threshold finds only the loudest transition. On the reference track the sub-150 Hz
+band steps ×1.7 at bar 1 as subtle drums enter and ×43 at bar 6 as the kit arrives; any
+threshold that catches the second is deaf to the first, and a listener hears both.
+
+Boundaries MUST therefore be detected at more than one sensitivity and **all of them kept**,
+each tagged with a `level`:
+
+| level | meaning | consequence for the cut |
+|---|---|---|
+| `major` | the music changes character — drums in or out, a new part | mandatory cut point |
+| `minor` | a step within a part — band-energy change, chord change | preferred cut point |
+
+Suppressing a minor boundary because a major one is nearby loses exactly the structure the
+director needs to place a clip well.
 
 Optional backend: All-In-One returns boundaries **with functional labels**
 (intro/verse/chorus/bridge/outro). When absent, sections are named positionally
@@ -73,6 +89,31 @@ With no track, generate one at a chosen BPM. `music.json` is filled from the gen
 parameters, so the grid is exact by construction and `source` is `"procedural"`. This is a
 usable placeholder for testing the whole pipeline without a licensed track; it is not a
 substitute for one in a delivered reel.
+
+## Where cuts may fall
+
+Every cut lands on a bar line. Not every bar line is an equally good cut, and the director
+MUST rank them:
+
+1. **`major` section boundary** — mandatory. No clip may straddle one.
+2. **`minor` boundary** — preferred. Use one when a clip needs an odd length, or when a
+   section is long enough to hold several clips.
+3. **plain bar line** — last resort, for when neither of the above lands where a clip must
+   end.
+
+A section short enough to be filled by one clip is filled by one clip. Splitting it at a bar
+that carries no musical event produces a cut the listener hears as arbitrary, because it is:
+the reference reel cut at bar 3 of a six-bar intro, where nothing happens in the music, and
+the two acceptable endings a listener named were the two real boundaries at bars 1 and 6.
+
+## A section holds one kind of material
+
+Material type MUST match section character, and this is checked rather than hoped for
+(`008_render.md` `material_match`).
+
+Concretely: **no fight clip is scheduled before the drums arrive.** The drumless intro is for
+warm-ups, walk-ons, salutes and hugs, and an action clip placed there reads as a mistake even
+when it lands exactly on a bar line.
 
 ## Mapping rules for the director
 

@@ -57,6 +57,11 @@ Optional and skippable. Three modes:
 - `weighted` — the user sets relative weights and fills **opening** and **ending** buckets;
   the director orders within those constraints.
 
+A position the user set is **binding**. The director places only the clips left to it, and a
+re-run never rearranges a pinned one (`002_manifests.md`). Where a pin cannot be honoured —
+the clip was dropped, or its section no longer exists — the director surfaces the conflict
+rather than quietly resolving it.
+
 ### 5. Final tweaks
 
 After a render: the EDL laid over the music waveform with section bands, showing which clip

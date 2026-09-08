@@ -85,8 +85,23 @@ A window is dropped, with the reason recorded in `flags`, when:
 
 - fewer than two fighters are visible in more than 30 % of the window;
 - in `personal` mode, the target is absent or occluded for more than 30 % of the window;
-- the window is shorter than 2 s;
+- **the source cannot fill the shortest permitted slot** (see below);
 - a scene cut or camera drop occurs inside it.
+
+### The minimum-slot gate
+
+A clip occupies a whole number of bars, so the shortest usable window is
+`MIN_BARS × bar_s` where `MIN_BARS` is 2. A candidate whose source cannot supply that much
+footage ending at its anchor is **not a candidate at all** and MUST be dropped here, flagged
+`source_too_short`.
+
+This gate is tempo-dependent and therefore evaluated after `music.json` exists. It is stated
+as a scoring gate rather than left to the director because a window that can never be
+rendered is not a weak candidate — it is not a candidate.
+
+Stretching such a window instead is the defect this gate exists to prevent: reaching past the
+end of a source produces frames that were never decoded, which appear as a freeze
+(`008_render.md`).
 
 ## Visual review
 
