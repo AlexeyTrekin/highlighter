@@ -34,6 +34,10 @@ def music_path(root: Path) -> Path:
     return root / "music.json"
 
 
+def review_path(root: Path) -> Path:
+    return root / "review.json"
+
+
 def edl_path(root: Path) -> Path:
     return root / "edl.json"
 

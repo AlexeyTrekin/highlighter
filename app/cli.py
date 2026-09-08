@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 
 import typer
+import uvicorn
 
 from app import __version__, assets, host, pipeline
 from app import project as project_store
@@ -18,6 +19,7 @@ from app.manifests.project import Options, Project
 from app.manifests.qa import Qa
 from app.stages import ingest as ingest_stage
 from app.stages import music as music_stage
+from app.web import server
 
 EXIT_STAGE_FAILED = 1
 EXIT_BAD_INPUT = 2
@@ -148,6 +150,8 @@ def run(
 
     typer.echo(f"ran: {', '.join(executed) or 'nothing (already done; use --force)'}")
     _warn_stale(directory, project, executed)
+    if "director" in executed:
+        _report_conflicts(directory, project)
 
     if "render" in executed:
         report = base.read(project_store.qa_path(directory), Qa)
@@ -235,6 +239,29 @@ def render(
 
 
 @cli.command()
+def review(
+    directory: Path = typer.Argument(..., help="Project directory."),
+    port: int = typer.Option(8420, "--port", help="Port to serve on."),
+    host: str = typer.Option("127.0.0.1", "--host", help="Interface to bind."),
+) -> None:
+    """Serve the review page and print its URL.
+
+    Blocks until interrupted — the one long-running command. It serves the machine's own
+    footage, so it binds to loopback by default (`spec/007_review_ui.md`).
+    """
+    _load(directory)
+    try:
+        pipeline.load_candidates(directory)
+    except pipeline.StageBlocked as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(EXIT_PREREQUISITE) from error
+
+    typer.echo(f"http://{host}:{port}/")
+    typer.echo("nothing here is required — an untouched project still renders")
+    uvicorn.run(server.create_app(directory), host=host, port=port, log_level="warning")
+
+
+@cli.command()
 def music(
     directory: Path = typer.Argument(..., help="Project directory."),
     as_json: bool = typer.Option(False, "--json", help="Emit the grid as JSON."),
@@ -305,6 +332,16 @@ def _warn_stale(directory: Path, project: Project, executed: list[str]) -> None:
                 err=True,
             )
             return
+
+
+def _report_conflicts(directory: Path, project: Project) -> None:
+    """Say which of the user's keeps the edit could not honour.
+
+    A keep is the strongest signal the pipeline gets. One that quietly fails to appear is the
+    worst outcome available: a decision was made, the reel ignored it, and nothing said so.
+    """
+    for candidate_id, reason in pipeline.director_conflicts(directory, project):
+        typer.echo(f"warning: kept {candidate_id} is not in the reel — {reason}", err=True)
 
 
 def _report_qa(report: Qa, directory: Path) -> None:

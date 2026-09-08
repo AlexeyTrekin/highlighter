@@ -14,14 +14,23 @@ from app.manifests.edl import Edl
 from app.manifests.music import Music
 from app.manifests.project import Project
 from app.manifests.qa import Qa
+from app.manifests.review import Review
 from app.stages import analyze as analyze_stage
 from app.stages import candidates as candidates_stage
 from app.stages import director as director_stage
 from app.stages import music as music_stage
+from app.stages import proxies as proxies_stage
 from app.stages import qa as qa_stage
 from app.stages import render as render_stage
 
-ORDER: tuple[str, ...] = ("analyze", "music", "candidates", "director", "render")
+ORDER: tuple[str, ...] = (
+    "analyze",
+    "music",
+    "candidates",
+    "proxies",
+    "director",
+    "render",
+)
 
 
 class StageBlocked(RuntimeError):
@@ -89,17 +98,40 @@ def run_candidates(root: Path, project: Project) -> Candidates:
     return found
 
 
+def run_proxies(root: Path, project: Project, force: bool = False) -> list[str]:
+    usable = [c for c in load_candidates(root).candidates if not c.flags]
+    dropped = [c for c in load_candidates(root).candidates if c.flags]
+    # Dropped candidates get a filmstrip but no proxy: the page shows them so one can be
+    # rescued, and a still is enough to judge that (`spec/007_review_ui.md`).
+    return proxies_stage.run(project, usable, root) + proxies_stage.strips_only(
+        project, dropped, root
+    )
+
+
+def load_review(root: Path) -> Review:
+    path = project_store.review_path(root)
+    return base.read(path, Review) if path.is_file() else Review()
+
+
 def run_director(root: Path, project: Project) -> Edl:
-    edl = director_stage.run(project, load_music(root), load_candidates(root))
+    music, candidates, review = load_music(root), load_candidates(root), load_review(root)
+    edl = director_stage.run(project, music, candidates, review)
     base.write(project_store.edl_path(root), edl)
     return edl
+
+
+def director_conflicts(root: Path, project: Project) -> list[tuple[str, str]]:
+    """Keeps the last director run could not honour."""
+    return director_stage.unhonoured_keeps(
+        project, load_music(root), load_candidates(root), load_review(root), load_edl(root)
+    )
 
 
 def run_render(root: Path, project: Project) -> Qa:
     edl = load_edl(root)
     reel = project_store.reel_path(root, project_store.next_reel_version(root))
     renders = render_stage.run(project, edl, project_store.render_dir(root), reel)
-    report = qa_stage.run(edl, load_music(root), renders, project.options.duration_s)
+    report = qa_stage.run(edl, load_music(root), renders, project.options.duration_s, project)
     base.write(project_store.qa_path(root), report)
     return report
 
@@ -110,6 +142,7 @@ RUNNERS = {
     "analyze": run_analyze,
     "music": lambda root, project, force=False: run_music(root, project),
     "candidates": lambda root, project, force=False: run_candidates(root, project),
+    "proxies": run_proxies,
     "director": lambda root, project, force=False: run_director(root, project),
     "render": lambda root, project, force=False: run_render(root, project),
 }

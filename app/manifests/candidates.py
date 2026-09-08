@@ -62,6 +62,10 @@ class Candidate(BaseModel):
     anchor: float
     kind: Kind
     origin: Origin = "halt"
+    # Set when a human adjusted the window. A trim is a statement about which seconds to use,
+    # so nothing downstream may reach outside it — unlike a halt-anchored window, where
+    # reaching back picks up the approach and is wanted.
+    trimmed: bool = False
     material: Material = "unknown"
     features: Features = Field(default_factory=Features)
     score: float = 0.0

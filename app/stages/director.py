@@ -7,6 +7,7 @@ are implemented for real, because they are what the prototype got wrong.
 """
 
 from app.manifests import music as music_schema
+from app.manifests import review as review_schema
 from app.manifests.candidates import (
     MIN_BARS,
     OPENING_MIN_BARS,
@@ -18,6 +19,7 @@ from app.manifests.candidates import (
 from app.manifests.edl import Clip, Crop, Edl, Output
 from app.manifests.music import Music
 from app.manifests.project import Project, source_by_id
+from app.manifests.review import Review
 from app.stages import music as music_stage
 
 STAGE = "director"
@@ -32,7 +34,30 @@ class NoUsableCandidates(RuntimeError):
     """Nothing survived the quality gates, so there is no reel to build."""
 
 
-def run(project: Project, music: Music, candidates: Candidates) -> Edl:
+def applied(candidates: Candidates, review: Review) -> Candidates:
+    """Candidates with the human's decisions folded in.
+
+    A dropped candidate keeps its place in the manifest and gains a flag, so the decision stays
+    auditable and reversible (`spec/002_manifests.md`). A trim replaces the window outright:
+    the user looked at the footage, which no measurement here did.
+    """
+    adjusted: list[Candidate] = []
+    for candidate in candidates.candidates:
+        clone = candidate.model_copy(deep=True)
+        if review_schema.is_dropped(review, clone.id):
+            clone.flags = [*clone.flags, "dropped_by_user"]
+        trim = review_schema.trim_for(review, clone.id)
+        if trim is not None:
+            clone.start, clone.end = trim.start, trim.end
+            clone.anchor = min(clone.anchor, trim.end)
+            clone.trimmed = True
+        adjusted.append(clone)
+    return Candidates(candidates=adjusted)
+
+
+def run(
+    project: Project, music: Music, candidates: Candidates, review: Review | None = None
+) -> Edl:
     """Build the EDL.
 
     Deterministic by construction: candidates carry a total order and every later choice
@@ -40,7 +65,8 @@ def run(project: Project, music: Music, candidates: Candidates) -> Edl:
     (`spec/002_manifests.md`).
     """
     grid = music.grid
-    pool = ranked(project, music, candidates)
+    review = review or Review()
+    pool = ranked(project, music, applied(candidates, review), review)
     if not pool:
         raise NoUsableCandidates("every candidate was dropped by the quality gates")
 
@@ -80,16 +106,56 @@ def run(project: Project, music: Music, candidates: Candidates) -> Edl:
     )
 
 
-def ranked(project: Project, music: Music, candidates: Candidates) -> list[Candidate]:
+def unhonoured_keeps(
+    project: Project, music: Music, candidates: Candidates, review: Review, edl: Edl
+) -> list[tuple[str, str]]:
+    """Clips the user marked keep that did not reach the reel, and why.
+
+    A keep is the strongest signal the pipeline gets, and one can still be impossible — trimmed
+    below the shortest slot, dropped by a gate, or simply beaten to the last slot. Letting it
+    vanish silently is the worst outcome: the user made a decision, the reel ignored it, and
+    nothing said so (`spec/007_review_ui.md`).
+    """
+    placed = {clip.candidate_id for clip in edl.clips}
+    adjusted = {c.id: c for c in applied(candidates, review).candidates}
+
+    conflicts: list[tuple[str, str]] = []
+    for candidate_id in review.verdicts:
+        if not review_schema.is_kept(review, candidate_id) or candidate_id in placed:
+            continue
+        candidate = adjusted.get(candidate_id)
+        if candidate is None:
+            conflicts.append((candidate_id, "no such candidate"))
+        elif candidate.flags:
+            conflicts.append((candidate_id, f"dropped: {', '.join(candidate.flags)}"))
+        elif not fills(candidate, project, music, OPENING_MIN_BARS):
+            length = candidate.end - candidate.start
+            conflicts.append(
+                (
+                    candidate_id,
+                    f"only {length:.2f}s after trimming; the shortest slot is "
+                    f"{OPENING_MIN_BARS * music.grid.bar_s:.2f}s",
+                )
+            )
+        else:
+            conflicts.append((candidate_id, "the reel ran out of slots"))
+    return sorted(conflicts)
+
+
+def ranked(
+    project: Project, music: Music, candidates: Candidates, review: Review
+) -> list[Candidate]:
     """Usable candidates, best first, under a total order.
 
-    The id is the final tiebreak so equal scores never fall back on set or dict iteration
-    order, which would let clips move between runs for no reason the user can see.
+    A clip the user marked **keep** sorts ahead of everything the scorer liked. They watched
+    the footage; the score is a proxy for that and loses to it. The id is the final tiebreak so
+    equal scores never fall back on set or dict iteration order, which would let clips move
+    between runs for no reason the user can see.
     """
     keep = [
         c for c in candidates.candidates if usable(c) and fills(c, project, music, OPENING_MIN_BARS)
     ]
-    return sorted(keep, key=lambda c: (-c.score, c.id))
+    return sorted(keep, key=lambda c: (not review_schema.is_kept(review, c.id), -c.score, c.id))
 
 
 def fills(candidate: Candidate, project: Project, music: Music, bars: int) -> bool:
@@ -101,11 +167,14 @@ def fills(candidate: Candidate, project: Project, music: Music, bars: int) -> bo
     contains, and reaching past its start renders footage no classifier looked at. A two-second
     stable stretch dropped into a two-bar slot brings four seconds to the screen, and the two
     that were never examined are most often the tail of the exchange that preceded it.
+
+    A window a human trimmed binds for the same reason and more strongly: they said which
+    seconds they wanted, and reaching outside them shows footage they took out.
     """
     source = source_by_id(project, candidate.source_id)
     if max_bars(candidate, music.grid.bar_s, source.duration_s) < bars:
         return False
-    if candidate.origin == "calm":
+    if candidate.origin == "calm" or candidate.trimmed:
         return candidate.end - candidate.start >= bars * music.grid.bar_s - 1e-9
     return True
 

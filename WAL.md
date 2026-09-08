@@ -88,7 +88,7 @@ so the tightened rule has plenty of headroom.
 ## Phase 2: Good moments
 
 ### 2.1 Camera-compensated activity, halt detection, closing speed
-[ready-for-review] Person detection, camera-compensated activity, halt-anchored windows, quality gates, a
+[v] Person detection, camera-compensated activity, halt-anchored windows, quality gates, a
 configurable composite score, and material classification. New `analyze` stage: the only one
 that decodes whole videos, so everything downstream reads `analysis/vNN.json` instead.
 
@@ -169,8 +169,38 @@ improvement as a failure.
 ## Phase 3: Human loop
 
 ### 3.1 Proxies, filmstrips, review server and UI
-[ ] 360p proxies and contact sheets; the local review server; three-state verdicts, trims and
-ordering; `review.json` consumed by the director.
+[ready-for-review] 360p proxies, posters and filmstrips; the local review server; three-state
+verdicts and trims; `review.json` consumed by the director.
+
+Ordering is split into 3.2 rather than bundled here: it is a separate UI surface
+(drag-to-sequence, opening and ending buckets, weights) with a non-trivial director side,
+since a pinned position is binding and an unhonourable pin must surface a conflict. Verdicts
+and trims already close the loop end to end.
+
+**Operating the page found what testing it did not.** Every API test passed against a grid of
+55 black rectangles: a `<video>` with `preload="metadata"` renders nothing until played, so
+the page was useless for the one thing it exists for — seeing fifty clips at once. Posters are
+now built alongside the proxies, and the videos load nothing until hovered.
+
+**A trim binds; a reach-back does not respect it.** A clip is anchored at its window end and
+reaches back the length of its slot, which is right for a detected exchange — the reach-back
+is the approach. For a human trim it is wrong: they said which seconds they wanted, and
+reaching past the start puts back the footage they just removed. Same shape as the calm-window
+defect from 2.1's review, and found the same way, by watching what the director actually did
+with a window someone had narrowed.
+
+**A keep that cannot be honoured is now reported.** Marking a clip keep and trimming it below
+the shortest slot made it vanish from the reel in silence. A keep is the strongest signal the
+pipeline gets; one that quietly fails to appear is the worst outcome available, because a
+decision was made, the reel ignored it, and nothing said so.
+
+`duplicate_footage` became implementable here: it needed a coarse per-source thumbnail, which
+nothing recorded. A checksum would not do — a clip re-uploaded through a messenger is
+re-encoded, so every byte differs while the picture is identical.
+
+### 3.2 Ordering: strict sequence, weights, opening and ending buckets
+[ ] Drag-to-sequence UI; pinned positions binding on the director; conflicts surfaced rather
+than quietly resolved.
 
 ## Phase 4: Musicality
 

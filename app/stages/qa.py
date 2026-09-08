@@ -6,6 +6,7 @@ A `fail` blocks calling the reel finished; warnings are reported, never suppress
 from app.manifests import qa as qa_schema
 from app.manifests.edl import Edl
 from app.manifests.music import Music, Section
+from app.manifests.project import Project
 from app.manifests.qa import Check, Qa
 from app.stages import music as music_stage
 from app.stages.render import ClipRender
@@ -17,8 +18,19 @@ BRIGHTNESS_JUMP: float = 12.0
 # three is the shortest run that frame-rate conversion cannot explain.
 FROZEN_TAIL_FRAMES: int = 2
 
+# Mean per-cell difference between two coarse thumbnails, on a 16-level scale, below which two
+# sources are the same recording. Loose enough to survive a re-encode, tight enough that two
+# clips of the same piste from the same angle still read as different.
+DUPLICATE_TOLERANCE: float = 0.6
 
-def run(edl: Edl, music: Music, renders: list[ClipRender], requested_s: float) -> Qa:
+
+def run(
+    edl: Edl,
+    music: Music,
+    renders: list[ClipRender],
+    requested_s: float,
+    project: Project | None = None,
+) -> Qa:
     checks: list[Check] = [
         *brightness_jump(renders),
         *frozen_tail(renders),
@@ -29,6 +41,7 @@ def run(edl: Edl, music: Music, renders: list[ClipRender], requested_s: float) -
         fade_target(edl),
         consecutive_setup(edl),
         duration(edl, requested_s),
+        *([duplicate_footage(edl, project)] if project is not None else []),
         *not_yet_implemented(),
     ]
     return qa_schema.build(checks)
@@ -47,8 +60,49 @@ def not_yet_implemented() -> list[Check]:
             status="warn",
             detail=f"not implemented yet; arrives with {step}",
         )
-        for name, step in (("duplicate_footage", "WAL 3.1"), ("target_present", "WAL 5.1"))
+        for name, step in (("target_present", "WAL 5.1"),)
     ]
+
+
+def duplicate_footage(edl: Edl, project: Project) -> Check:
+    """Whether two clips in the reel come from the same recording uploaded twice.
+
+    Compared on coarse thumbnails rather than checksums: a clip re-uploaded through a messenger
+    is re-encoded, so every byte differs while the picture is identical. Identical footage in
+    two slots is exactly what a viewer notices and no other check would catch — sources are
+    distinct ids, so `consecutive_setup` sees nothing wrong.
+    """
+    used = list(dict.fromkeys(clip.source_id for clip in edl.clips))
+    signatures = {source.id: source.signature for source in project.sources if source.signature}
+
+    pairs = [
+        f"{left} and {right}"
+        for index, left in enumerate(used)
+        for right in used[index + 1 :]
+        if left in signatures
+        and right in signatures
+        and _signatures_match(signatures[left], signatures[right])
+    ]
+    if not pairs:
+        return Check(
+            name="duplicate_footage",
+            target="reel",
+            status="pass",
+            detail=f"{len(used)} distinct sources in the reel",
+        )
+    return Check(
+        name="duplicate_footage",
+        target=", ".join(pairs),
+        status="warn",
+        detail="these sources look like the same recording uploaded twice",
+    )
+
+
+def _signatures_match(left: list[int], right: list[int]) -> bool:
+    if len(left) != len(right) or not left:
+        return False
+    differences = sum(abs(a - b) for a, b in zip(left, right, strict=True))
+    return differences / len(left) <= DUPLICATE_TOLERANCE
 
 
 def spike_frames(levels: list[float], threshold: float = BRIGHTNESS_JUMP) -> list[int]:
