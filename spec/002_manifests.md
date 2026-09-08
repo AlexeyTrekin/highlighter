@@ -171,7 +171,7 @@ review step genuinely optional.
   contiguous and non-overlapping.
 - `crop.mode` ∈ `"none"` | `"tracked"` | `"fixed"`; a `"fixed"` crop carries an explicit
   `{x, y, w, h}`.
-- `speed` is reserved (always `1.0` — see `001_goal.md` non-goals) and MUST be accepted by
+- `speed` is reserved (always `1.0` — slow motion is deferred, `001_goal.md`) and MUST be accepted by
   the renderer so the field can be used without a schema change.
 - `why` is a human-readable justification. It exists so the user can argue with the edit.
 

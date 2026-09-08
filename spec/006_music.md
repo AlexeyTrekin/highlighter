@@ -37,6 +37,16 @@ Optional backend: All-In-One returns boundaries **with functional labels**
 (`intro`, `s1`, `s2`, …, `outro`) and MUST NOT be given invented functional names — a
 positional label the director can reason about is honest; a guessed "chorus" is not.
 
+All-In-One is optional rather than the default for a hard reason, not a preference: it
+requires `natten` on macOS, which publishes no distribution for the platform and must be
+compiled against a torch build environment, and it pulls `demucs` and the whole PyTorch tree
+that `004_stack.md` deliberately keeps out of the base install. As a default it would make
+environment setup fail outright on a supported machine — taking the video pipeline down with
+it, for a music-labelling improvement.
+
+The loss is bounded: the director's rules key off energy and low-band content, not off
+section names (see the mapping rules below), so labels improve legibility more than output.
+
 ## Chords
 
 `chord_change_bars` lists the bar indices where harmony moves. Baseline: change in the top-k

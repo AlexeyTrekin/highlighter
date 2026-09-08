@@ -21,6 +21,12 @@ source is too short to reach back that far, the anchor moves later rather than t
 shortened — a clip that is not a whole number of bars breaks the grid for everything after
 it.
 
+That last identity holds only at `speed == 1.0`. A clip played at speed `s` consumes
+`bars × bar_s × s` source seconds to fill the same slot, so `in = out − bars × bar_s × s`.
+Slow motion is deferred (`001_goal.md`), and `speed` is fixed at `1.0` until it arrives —
+but the arithmetic is written in its general form here so the factor is not mistaken for
+redundancy and dropped.
+
 ## Decode
 
 Decode **sequentially** from the clip's start. Per-frame seeking is an order of magnitude
@@ -66,6 +72,16 @@ point for tuning upward.
 Concat the rendered clips, mux the track, fade video and audio over the outro, write with
 `+faststart`. Intermediate clips are encoded at high quality (crf ≈ 12) so the concat stage
 is the only place quality is spent.
+
+Concatenation is a **stream copy** (`-f concat -c copy`), which is what keeps the assembly
+stage nearly free. That is conditional on every boundary being a hard cut: a cross-fade spans
+two clips and needs a filter graph over both, so it cannot be a copy. Transitions are deferred
+(`001_goal.md`), and when they arrive the copy path stays for the cut-only case rather than
+being replaced wholesale — most boundaries will still be cuts, and re-encoding all of them to
+support a few would cost quality everywhere for a gain in two places.
+
+Treat the copy as an optimisation guarded by a property of the EDL, not as the definition of
+assembly.
 
 ## Automated QA
 

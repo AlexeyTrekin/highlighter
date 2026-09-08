@@ -9,7 +9,7 @@ deterministic render of it.** Everything upstream exists to fill that markup in 
 
 | document | covers | read it when |
 |---|---|---|
-| [001_goal.md](001_goal.md) | product goal, inputs/outputs, `event` vs `personal` mode, human-input budget, non-goals | any scope question |
+| [001_goal.md](001_goal.md) | product goal, inputs/outputs, `event` vs `personal` mode, human-input budget, what is out of scope and what is deferred | any scope question |
 | [002_manifests.md](002_manifests.md) | **the data contract** — project layout and every manifest schema, including `edl.json` | touching any file the pipeline reads or writes |
 | [003_pipeline.md](003_pipeline.md) | stage graph, ordering constraints, idempotency and resume, long-recording path | adding or reordering a stage |
 | [004_stack.md](004_stack.md) | host runtime (no container), dependencies, optional backends, repo layout | dependency or infrastructure decisions |

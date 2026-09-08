@@ -45,14 +45,35 @@ Every interactive step is an override, never a requirement:
    call*.
 3. Optional trims, optional ordering hints, optional free-text notes to the agent.
 
-## Non-goals
+## Out of scope, permanently
 
-- No transitions, colour grading, titles, or effects beyond a fade in/out.
-- No slow motion. 30 fps phone footage does not survive it without frame interpolation.
 - No face recognition or person re-identification. Fighters wear masks; kit colour plus
   "present in every clip" is the signal that works (`005_scoring.md`).
 - No cloud upload of footage. All processing is local (`004_stack.md`).
 - Not a general video editor. The scope is this one shape of edit.
+
+## Deferred
+
+Wanted, not yet built. Listed here because each one constrains a decision being made now —
+the point is to keep the door open, not to build behind it. Nothing in this section may be
+implemented speculatively.
+
+| capability | what it costs when it arrives |
+|---|---|
+| transitions (cross-fades, wipes) | the assembly stage stops being a stream copy — see `008_render.md` |
+| slow motion | frame interpolation, **and** the clip-length arithmetic changes (`008_render.md`) |
+| colour grading | a per-clip or per-project look field in the EDL; additive |
+| titles and lower-thirds | an overlay track in the EDL; additive |
+
+Manifests carry `schema_version` and JSON objects accept new keys, so grading and titles need
+nothing reserved for them today: they arrive as new optional fields without a migration. Do
+not pre-build an overlay system for them.
+
+Transitions and slow motion are different — they invalidate assumptions the renderer relies
+on right now, so those assumptions are marked as conditional where they are stated rather
+than discovered later.
+
+Until then the deliverable has hard cuts, a fade in and out, and `speed == 1.0`.
 
 ## Definition of a good reel
 
