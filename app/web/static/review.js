@@ -217,6 +217,149 @@ for (const entry of document.querySelectorAll(".dropped li[data-id]")) {
   wireVerdicts(entry);
 }
 
+// ---- Ordering (spec/007_review_ui.md §4) -----------------------------------------------
+// Order only: which clip comes before which. Bars are the director's business, so nothing here
+// ever names one.
+
+const order = JSON.parse(document.getElementById("order-state").textContent);
+const sequencePanel = document.getElementById("sequence");
+const sequenceList = document.getElementById("sequence-list");
+const sequenceEmpty = document.getElementById("sequence-empty");
+const cardsById = new Map(cards.map((card) => [card.dataset.id, card]));
+
+// Written whole: a sequence is one statement, and saving it in pieces would leave the file
+// describing an order nobody asked for if a save in the middle failed.
+const saveOrder = debounce(async () => {
+  const saved = await send("PUT", "/api/order", order);
+  sequencePanel.classList.toggle("unsaved", !saved);
+}, 300);
+
+function moveInSequence(from, to) {
+  if (to < 0 || to >= order.sequence.length) return;
+  const [moved] = order.sequence.splice(from, 1);
+  order.sequence.splice(to, 0, moved);
+  drawOrder();
+  saveOrder();
+  sequenceList.children[to]?.focus();
+}
+
+function sequenceEntry(id, index) {
+  const item = document.createElement("li");
+  item.draggable = true;
+  item.tabIndex = 0;
+  item.dataset.id = id;
+  const card = cardsById.get(id);
+  const material = card ? card.querySelector(".badge").textContent : "";
+  item.innerHTML =
+    `<span class="seq-index">${index + 1}</span> <strong>${id}</strong> ` +
+    `<span class="muted">${material}</span>`;
+
+  const remove = document.createElement("button");
+  remove.textContent = "remove";
+  remove.addEventListener("click", () => {
+    order.sequence.splice(index, 1);
+    drawOrder();
+    saveOrder();
+  });
+  item.append(remove);
+
+  item.addEventListener("dragstart", (event) => event.dataTransfer.setData("text/plain", index));
+  item.addEventListener("dragover", (event) => event.preventDefault());
+  item.addEventListener("drop", (event) => {
+    event.preventDefault();
+    moveInSequence(Number(event.dataTransfer.getData("text/plain")), index);
+  });
+  // Dragging is not reachable from a keyboard, and every control here has to be
+  // (spec/007_review_ui.md).
+  item.addEventListener("keydown", (event) => {
+    if (!event.altKey) return;
+    if (event.key === "ArrowUp") { event.preventDefault(); moveInSequence(index, index - 1); }
+    if (event.key === "ArrowDown") { event.preventDefault(); moveInSequence(index, index + 1); }
+  });
+  return item;
+}
+
+function drawOrder() {
+  for (const button of document.querySelectorAll('input[name="order-mode"]')) {
+    button.checked = button.value === order.mode;
+  }
+  sequencePanel.hidden = order.mode !== "strict";
+  for (const block of document.querySelectorAll(".strict-only")) {
+    block.hidden = order.mode !== "strict";
+  }
+  for (const block of document.querySelectorAll(".weighted-only")) {
+    block.hidden = order.mode !== "weighted";
+  }
+
+  sequenceList.replaceChildren(...order.sequence.map(sequenceEntry));
+  sequenceEmpty.hidden = order.sequence.length > 0;
+
+  for (const card of cards) {
+    const id = card.dataset.id;
+    const at = order.sequence.indexOf(id);
+    card.querySelector(".pin-at").textContent = at === -1 ? "" : `position ${at + 1}`;
+    card.querySelector(".pin").textContent = at === -1 ? "add to sequence" : "remove from sequence";
+
+    const weight = weightOf(id);
+    const slider = card.querySelector(".weight");
+    const readout = card.querySelector(".weight-readout");
+    if (weight === undefined) {
+      readout.textContent = "agent's call";
+    } else {
+      slider.value = weight;
+      readout.textContent = weight === 0 ? "opens the reel"
+        : weight === 100 ? "closes the reel"
+        : `weight ${weight}`;
+    }
+    card.classList.toggle("pinned", at !== -1 || weight !== undefined);
+  }
+}
+
+function weightOf(id) {
+  if (id in order.weights) return order.weights[id];
+  if (order.opening.includes(id)) return 0;
+  if (order.ending.includes(id)) return 100;
+  return undefined;
+}
+
+function setWeight(id, weight) {
+  // One spelling on the way out: the buckets are shorthand the page offers, and keeping a clip
+  // in both would leave two answers to the same question in the file.
+  order.opening = order.opening.filter((other) => other !== id);
+  order.ending = order.ending.filter((other) => other !== id);
+  if (weight === undefined) delete order.weights[id];
+  else order.weights[id] = weight;
+  drawOrder();
+  saveOrder();
+}
+
+for (const card of cards) {
+  const id = card.dataset.id;
+  card.querySelector(".pin").addEventListener("click", () => {
+    const at = order.sequence.indexOf(id);
+    if (at === -1) order.sequence.push(id);
+    else order.sequence.splice(at, 1);
+    drawOrder();
+    saveOrder();
+  });
+  card.querySelector(".weight").addEventListener("input", (event) => {
+    setWeight(id, Number(event.target.value));
+  });
+  card.querySelector(".send-start").addEventListener("click", () => setWeight(id, 0));
+  card.querySelector(".send-end").addEventListener("click", () => setWeight(id, 100));
+  card.querySelector(".clear-weight").addEventListener("click", () => setWeight(id, undefined));
+}
+
+for (const button of document.querySelectorAll('input[name="order-mode"]')) {
+  button.addEventListener("change", () => {
+    order.mode = button.value;
+    drawOrder();
+    saveOrder();
+  });
+}
+
+drawOrder();
+
 document.addEventListener("keydown", (event) => {
   // `?.` because a keydown whose focused element has just been removed is retargeted to the
   // document, which has no `matches` — and a throw here stops every keystroke silently.

@@ -82,8 +82,14 @@ which bars a clip occupies follows from the slot plan and the music grid (`006_m
 a user-facing position that meant a bar index would silently point at a different clip whenever
 the music analysis changed.
 
-**`strict`** — `sequence` is candidate ids in reel order: `sequence[0]` is the first clip. It
-need not cover the reel. The director fills the positions after it by its own rules.
+**`strict`** — `sequence` is candidate ids in reel order: `sequence[0]` comes before
+`sequence[1]`, and so on. It need not cover the reel; the director fills what is left by its own
+rules, around and after the pinned clips.
+
+What binds is the order and not the slot number. Slots are one, two or three bars, so a pinned
+clip may be too short for the one its turn lands on; it then takes the next slot that fits
+rather than losing its place in the sequence. A clip no remaining slot can hold gives up its
+turn — reported, and without blocking everything behind it.
 
 **`weighted`** — a weight is a number from 0 to 100 giving a clip's place along the reel, low
 first. It is a relative composition, not a slot number:

@@ -220,15 +220,16 @@ def test_a_trim_binds_even_where_the_window_runs_past_the_file():
 @pytest.mark.parametrize(
     ("order", "expected"),
     [
-        (Order(), []),
-        (Order(mode="strict", sequence=["c001"]), ["mode strict", "1 sequence"]),
-        (Order(opening=["c001"], weights={"c002": 2.0}), ["1 opening", "1 weights"]),
+        (Order(), {}),
+        (Order(opening=["c001"], ending=["c002"]), {"c001": 0.0, "c002": 100.0}),
+        # The explicit weight is the more specific statement of the same thing.
+        (Order(opening=["c001"], weights={"c001": 30.0}), {"c001": 30.0}),
     ],
 )
-def test_ordering_hints_name_what_was_asked_for(order, expected):
-    """Recorded but not honoured until WAL 3.2, so `hlreel run` can say so rather than let a
-    pinned position fail as silently as an unhonoured keep."""
-    assert review_schema.ordering_hints(Review(order=order)) == expected
+def test_the_buckets_are_shorthand_for_the_ends_of_the_axis(order, expected):
+    """So the page can offer "send to the start" next to the slider without a second concept
+    underneath it (`spec/007_review_ui.md`)."""
+    assert review_schema.effective_weights(order) == expected
 
 
 @pytest.mark.parametrize(

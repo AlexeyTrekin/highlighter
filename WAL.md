@@ -226,8 +226,51 @@ built from, sharing its eligibility test with the director, so it cannot describ
 that never happened.
 
 ### 3.2 Ordering: strict sequence, weights, opening and ending buckets
-[ ] Drag-to-sequence UI; pinned positions binding on the director; conflicts surfaced rather
-than quietly resolved.
+[ready-for-review] The musical rules restated over sections rather than drums; `strict` and
+`weighted` ordering honoured by the director; conflicts surfaced rather than quietly resolved.
+
+**A rule keyed on an instrument is a rule about one arrangement.** "No fight clip is scheduled
+before the drums arrive" was stated as an absolute and measured from a drum onset. There is
+music with no drumless intro, music with no drums at all, and there are collections with no
+non-action material — in each case the old rule either never fired or silently shortened the
+reel. It is now the leading run of sections below 0.6 of the loudest section's energy, and a
+preference that yields to a pin or to an empty shortlist rather than a gate. On the reference
+track the section table alone reproduces the drum-entry bar exactly, and the whole EDL is
+unchanged; the sections sit at 0.44, 1.00 and 0.66 of the peak, so the threshold has room on
+both sides.
+
+**Truncating the reel is the one thing worse than an imperfect cut.** A user can see a fight
+clip under a quiet chord and judge it. They cannot see the footage that was never shown, so
+where a preference cannot be satisfied the reel is still built and the miss is reported.
+
+**Two preferences wanting the same clip needed an arbiter, and already had one.** With the
+opening detected from energy, a fixture began failing where the opening consumed the only calm
+window and the fade landed on a fight clip — the v3 defect by a new route. The first fix
+reserved a calm clip for the coda; wrong, because 2.1 already recorded the priority the other
+way ("an action clip under a quiet opening is jarring, whereas under a fade-out it is merely a
+wasted finale"). Greedy front-to-back filling gives the opening priority for nothing, so the
+contest is documented at the loop instead of arbitrated by new machinery. A long quiet opening
+can still take every calm window; `fade_target` warns, and looking ahead across slots is 4.1.
+
+**Ordering is order, never time.** A weight or a sequence position says which clip comes before
+which; the slot plan and the grid decide which bars it occupies. A user-facing position that
+meant a bar index would point at a different clip whenever the music analysis changed.
+
+**Binding the slot number breaks the order it was meant to protect.** The first implementation
+pinned clip *i* to slot *i*. Slots are one, two or three bars, so on the real project a clip
+pinned second could not fill the three-bar slot its turn landed on, was skipped, and came out
+fourth with nothing said. A pin now takes the next slot that fits, keeping its place in the
+sequence, and one that no remaining slot can hold gives up its turn instead of blocking
+everything behind it.
+
+**A pin lifts the quality gates; it does not overrule a drop.** Pointing at a clip and saying
+where it goes says at least as much as keeping it, so it rescues a gated candidate the same
+way. Pinning and dropping the same clip is a contradiction in the user's own input, and
+resolving it either way silently would be a guess — it is reported.
+
+Weights here are positions along the reel and have nothing to do with the scoring weights 2.2
+tunes. Same word, different quantity; the spec now says so, because the first plan for this
+step had them as a score multiplier.
 
 ## Phase 4: Musicality
 

@@ -75,13 +75,32 @@ def run(
 
     clips: list[Clip] = []
     previous_source: str | None = None
+    slots = plan_slots(music, total_bars)
+    pinned = pinned_positions(pool, review, len(slots))
 
     # Front to back, which is also what settles the one contest between two preferences: with a
     # single calm window and both a quiet opening and a coda wanting it, the opening takes it. An
     # action clip under a quiet opening is jarring; under a fade-out it is a wasted finale, and
     # `fade_target` reports that one.
-    for slot, bars in plan_slots(music, total_bars):
-        chosen = choose(pool, project, music, bars, slot, quiet_bars, previous_source, total_bars)
+    pending = [candidate for _, candidate in sorted(pinned.items())]
+    targets = {candidate.id: position for position, candidate in pinned.items()}
+
+    for index, (slot, bars) in enumerate(slots):
+        chosen = take_pin(pending, targets, index, project, music, slots)
+        if chosen is None:
+            # A clip still waiting for its turn is not available to fill an earlier slot, or the
+            # order the user set would be honoured by having already been spent.
+            waiting = {c.id for c in pending}
+            chosen = choose(
+                [c for c in pool if c.id not in waiting],
+                project,
+                music,
+                bars,
+                slot,
+                quiet_bars,
+                previous_source,
+                total_bars,
+            )
         if chosen is None:
             # Skipping would leave a hole in the timeline and every later clip would start on
             # the wrong bar, so the reel ends here instead.
@@ -110,15 +129,109 @@ def run(
     )
 
 
+def take_pin(
+    pending: list[Candidate],
+    targets: dict[str, int],
+    index: int,
+    project: Project,
+    music: Music,
+    slots: list[tuple[int, int]],
+) -> tuple[Candidate, str] | None:
+    """The next pinned clip, if its turn has come and this slot can hold it.
+
+    A pin is binding and outranks every preference the director has: the user can see the clip
+    and hear the track (`spec/007_review_ui.md`). What binds is the **order**, not the slot
+    number — slots are one, two or three bars, and a clip too short for the one its turn lands
+    on takes the next that fits rather than losing its place in the sequence altogether.
+
+    Taken only from the head, so a clip never overtakes one the user put before it. One that no
+    remaining slot can hold is dropped from the queue instead of blocking everything behind it;
+    `unhonoured_keeps` reports it.
+    """
+    bars = slots[index][1]
+    while pending and targets[pending[0].id] <= index:
+        if fills(pending[0], project, music, bars):
+            candidate = pending.pop(0)
+            return candidate, f"pinned by the user; {targets[candidate.id] + 1} in their order"
+        if any(fills(pending[0], project, music, later) for _, later in slots[index + 1 :]):
+            return None
+        pending.pop(0)
+    return None
+
+
+def pinned_positions(
+    pool: list[Candidate], review: Review, slot_count: int
+) -> dict[int, Candidate]:
+    """Where in the reel each pinned clip is due (`spec/007_review_ui.md`).
+
+    Positions are places in the running order, never bars: the slot plan decides how long each
+    one is, and a clip whose turn lands on a slot it cannot fill takes the next that fits.
+    `pool` is already in the director's total order, so equal weights — a batch the user said
+    nothing more precise about — come out in a stable order rather than a dict's.
+    """
+    order = review.order
+    by_id = {c.id: c for c in pool}
+    if order.mode == "strict":
+        wanted = [by_id[cid] for cid in dict.fromkeys(order.sequence) if cid in by_id]
+        return dict(enumerate(wanted[:slot_count]))
+    if order.mode != "weighted" or slot_count == 0:
+        return {}
+
+    weights = review_schema.effective_weights(order)
+    rank = {c.id: index for index, c in enumerate(pool)}
+    weighted = sorted(
+        (c for c in pool if c.id in weights),
+        key=lambda c: (weights[c.id], rank[c.id]),
+    )[:slot_count]
+    if not weighted:
+        return {}
+
+    values = [weights[c.id] for c in weighted]
+    if max(values) == min(values):
+        # One batch and nothing to bracket, so the weight is read as a place on the axis: the
+        # batch sits together, that far through the reel.
+        share = values[0] / review_schema.WEIGHT_MAX
+        start = round(share * (slot_count - len(weighted)))
+        return {start + offset: candidate for offset, candidate in enumerate(weighted)}
+
+    free = _share_free_slots(values, slot_count - len(weighted))
+    placed: dict[int, Candidate] = {}
+    cursor = 0
+    for index, candidate in enumerate(weighted):
+        placed[cursor] = candidate
+        cursor += 1 + (free[index] if index < len(free) else 0)
+    return placed
+
+
+def _share_free_slots(weights: list[float], free: int) -> list[int]:
+    """Free positions between each consecutive pair of weighted clips.
+
+    Shared in proportion to the gap between their weights, so 10 → 50 takes about twice the room
+    of 50 → 70 (`spec/007_review_ui.md`). Largest remainder, so the parts add up to the whole
+    and the result does not depend on iteration order.
+    """
+    gaps = [later - earlier for earlier, later in zip(weights, weights[1:], strict=False)]
+    total = sum(gaps)
+    if free <= 0 or total <= 0:
+        return [0] * len(gaps)
+
+    exact = [gap / total * free for gap in gaps]
+    shares = [int(value) for value in exact]
+    remainder = free - sum(shares)
+    for index in sorted(range(len(gaps)), key=lambda i: (-(exact[i] - shares[i]), i))[:remainder]:
+        shares[index] += 1
+    return shares
+
+
 def unhonoured_keeps(
     project: Project, music: Music, candidates: Candidates, review: Review, edl: Edl
 ) -> list[tuple[str, str]]:
-    """Clips the user marked keep that did not reach the reel, and why.
+    """Clips the user asked for — by keeping or by pinning — that did not reach the reel.
 
-    A keep is the strongest signal the pipeline gets, and one can still be impossible — too
-    short for any slot this reel has, or simply beaten to the last slot. Letting it vanish
-    silently is the worst outcome: the user made a decision, the reel ignored it, and nothing
-    said so (`spec/007_review_ui.md`).
+    A keep is the strongest signal the pipeline gets and a pin is stronger still, and either can
+    be impossible: too short for any slot this reel has, dropped in the same breath, or beaten
+    to the last slot. Letting one vanish silently is the worst outcome available: the user made
+    a decision, the reel ignored it, and nothing said so (`spec/007_review_ui.md`).
 
     The reason is worked out against the slot plan the reel was actually built from, so it names
     the rule that excluded this clip rather than a plausible one.
@@ -127,13 +240,34 @@ def unhonoured_keeps(
     adjusted = {c.id: c for c in applied(candidates, review).candidates}
     slots = plan_slots(music, bar_budget(music, project.options.duration_s))
 
+    asked_for = [cid for cid in review.verdicts if review_schema.is_kept(review, cid)]
+    asked_for += [cid for cid in review_schema.pins(review.order) if cid not in asked_for]
+
+    pool = ranked(project, music, Candidates(candidates=list(adjusted.values())), review)
+    cuttable = {c.id for c in pool}
+    honoured = {c.id for c in pinned_positions(pool, review, len(slots)).values()}
+    pins = set(review_schema.pins(review.order))
+
     conflicts: list[tuple[str, str]] = []
-    for candidate_id in review.verdicts:
-        if not review_schema.is_kept(review, candidate_id) or candidate_id in placed:
+    for candidate_id in asked_for:
+        if candidate_id in placed:
             continue
         candidate = adjusted.get(candidate_id)
         if candidate is None:
             conflicts.append((candidate_id, "no such candidate"))
+        elif review_schema.is_dropped(review, candidate_id):
+            conflicts.append((candidate_id, "asked for and dropped in the same review"))
+        elif candidate_id in pins and candidate_id in cuttable and candidate_id not in honoured:
+            # Cuttable and pinned, yet given no position: the reel is shorter than the
+            # sequence. "Beaten to the last slot" would send the user hunting a competitor.
+            held = len(slots)
+            conflicts.append(
+                (
+                    candidate_id,
+                    f"pinned past the end of the reel; it holds {held} clip"
+                    f"{'' if held == 1 else 's'}",
+                )
+            )
         else:
             conflicts.append((candidate_id, _why_unplaced(candidate, project, music, slots)))
     return sorted(conflicts)
@@ -175,13 +309,18 @@ def ranked(
 
     A keep also overrides the quality gates, which is what rescuing a dropped candidate means
     (`spec/007_review_ui.md`): the gates are a guess about what a viewer would reject, and a
-    viewer who has looked at the clip outranks them. The bar grid is not overridable — a window
+    viewer who has looked at the clip outranks them. Pinning a clip to a position says the same
+    thing more strongly, so it lifts the gates too. The bar grid is not overridable — a window
     too short for any slot still cannot be cut — and `unhonoured_keeps` reports that case.
     """
+    asked_for = set(review_schema.pins(review.order))
     keep = [
         c
         for c in candidates.candidates
-        if (usable(c) or review_schema.is_kept(review, c.id))
+        # A drop is as explicit as a pin, so a clip that is both is not quietly resolved in
+        # either direction: it stays out, and `unhonoured_keeps` reports the contradiction.
+        if not review_schema.is_dropped(review, c.id)
+        and (usable(c) or review_schema.is_kept(review, c.id) or c.id in asked_for)
         and fills(c, project, music, OPENING_MIN_BARS)
     ]
     return sorted(keep, key=lambda c: (not review_schema.is_kept(review, c.id), -c.score, c.id))

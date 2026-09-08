@@ -14,7 +14,6 @@ import uvicorn
 from app import __version__, assets, host, pipeline
 from app import project as project_store
 from app.manifests import base, qa
-from app.manifests import review as review_schema
 from app.manifests.edl import Edl
 from app.manifests.project import Options, Project
 from app.manifests.qa import Qa
@@ -156,7 +155,6 @@ def run(
     # Reported against whatever edit currently stands, not only against one just built: a run
     # that skipped the director is exactly when a keep made since is missing from the reel.
     _report_conflicts(directory, project)
-    _report_unhonoured_order(directory)
 
     if "render" in executed:
         report = base.read(project_store.qa_path(directory), Qa)
@@ -340,9 +338,9 @@ def _warn_stale(directory: Path, project: Project, executed: list[str]) -> None:
 
 
 def _report_conflicts(directory: Path, project: Project) -> None:
-    """Say which of the user's keeps the edit could not honour.
+    """Say which of the user's keeps and pins the edit could not honour.
 
-    A keep is the strongest signal the pipeline gets. One that quietly fails to appear is the
+    These are the strongest signals the pipeline gets. One that quietly fails to appear is the
     worst outcome available: a decision was made, the reel ignored it, and nothing said so.
     """
     try:
@@ -351,21 +349,8 @@ def _report_conflicts(directory: Path, project: Project) -> None:
         # No edit to compare the keeps against yet; the run's own output already said so.
         return
     for candidate_id, reason in conflicts:
-        typer.echo(f"warning: kept {candidate_id} is not in the reel — {reason}", err=True)
-
-
-def _report_unhonoured_order(directory: Path) -> None:
-    """Say when `review.json` pins positions this build does not place.
-
-    Ordering arrives with WAL 3.2. Until it does, a pin that is read, recorded and quietly
-    ignored is the same failure as a keep that never reaches the reel.
-    """
-    hints = review_schema.ordering_hints(pipeline.load_review(directory))
-    if hints:
         typer.echo(
-            f"warning: review.json asks for {', '.join(hints)}; ordering hints are recorded "
-            f"but not honoured yet",
-            err=True,
+            f"warning: {candidate_id} was asked for but is not in the reel — {reason}", err=True
         )
 
 

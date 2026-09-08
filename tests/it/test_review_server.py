@@ -142,6 +142,51 @@ def test_a_note_is_recorded_and_clearing_it_removes_the_entry(client, project_ro
     assert "c001" not in read_review(project_root).notes
 
 
+def test_an_order_is_recorded_whole(client, project_root):
+    """A sequence is one statement; saving it in pieces would leave the file describing an order
+    nobody asked for if a save in the middle failed."""
+    body = {
+        "mode": "strict",
+        "sequence": ["c002", "c001"],
+        "opening": [],
+        "ending": [],
+        "weights": {},
+    }
+
+    assert client.put("/api/order", json=body).status_code == 200
+    order = read_review(project_root).order
+    assert (order.mode, order.sequence) == ("strict", ["c002", "c001"])
+
+
+def test_an_order_naming_an_unknown_candidate_is_refused(client, project_root):
+    body = {"mode": "strict", "sequence": ["c001", "c999"]}
+
+    assert client.put("/api/order", json=body).status_code == 404
+    assert not project_store.review_path(project_root).exists()
+
+
+@pytest.mark.parametrize("weight", [-1.0, 100.5])
+def test_a_weight_off_the_axis_is_refused(client, project_root, weight):
+    """0 opens the reel and 100 closes it; there is nothing outside that to mean."""
+    body = {"mode": "weighted", "weights": {"c001": weight}}
+
+    assert client.put("/api/order", json=body).status_code == 400
+    assert not project_store.review_path(project_root).exists()
+
+
+def test_an_unknown_ordering_mode_is_refused(client):
+    assert client.put("/api/order", json={"mode": "vibes"}).status_code == 422
+
+
+def test_the_page_carries_the_recorded_order_to_the_browser(client, project_root):
+    client.put("/api/order", json={"mode": "weighted", "weights": {"c001": 25.0}})
+
+    body = client.get("/").text
+
+    assert '"mode":"weighted"' in body
+    assert '"c001":25.0' in body
+
+
 def test_marking_done_is_recorded(client, project_root):
     client.post("/api/complete")
 
