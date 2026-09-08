@@ -1,11 +1,11 @@
 ---
-description: "Python-specific conventions: PEP 8, module-function pattern, alembic migrations, containerized tests. Applies during delivery, stabilization, and review when files under app/, alembic/, or tests/ are touched."
-applyTo: "{app,alembic,tests}/**"
+description: "Python-specific conventions: PEP 8, module-function pattern, JSON-manifest persistence, venv-based tests. Applies during delivery, stabilization, and review when files under app/ or tests/ are touched."
+applyTo: "{app,tests}/**"
 ---
 
 # Python Language Pack
 
-Layered on top of `instructions/delivery.md`, `instructions/stabilization.md`, and `instructions/review.md`. Read this pack whenever the change touches Python sources, tests, or alembic migrations.
+Layered on top of `instructions/delivery.md`, `instructions/stabilization.md`, and `instructions/review.md`. Read this pack whenever the change touches Python sources or tests.
 
 ## Style
 - Follow PEP 8.
@@ -43,15 +43,20 @@ def do_smth_request():
     return my_service.do_smth()
 ```
 
-## Migrations (alembic)
-- Keep migrations in `alembic/versions/` deterministic and human-reviewable.
-- Additive by default; destructive operations require an explicit WAL note explaining the data-loss risk and the rollback plan.
-- After autogenerate, hand-edit the migration to remove noise (e.g., spatial-index duplicates already created by GeoAlchemy2).
+## Persistence
+There is no database (`spec/004_stack.md`). State lives in the project directory as JSON
+manifests defined by `spec/002_manifests.md`, each with a pydantic model that validates it on
+read and on write. A change that wants an ORM, a migration tool or a schema table is a spec
+change, not an implementation detail — stop and surface it.
+
+Manifests are written atomically (temp file + rename) so an interrupted stage never leaves a
+half-parsed file behind.
 
 ## Tests
-- All tests (unit and integration) MUST run inside the project test container — never run the suite from a host venv.
-- Integration tests MAY launch sidecar containers for external dependencies and mock servers via docker-compose.
-- Match the test entry points listed in `AGENTS.md` COMMANDS section (`agent-make test`, `agent-make utest`, `agent-make itest`, `agent-make test-attach`). All invocations go through `agent-make` — see AGENTS.md MAKE COMMAND POLICY.
+- All tests run on the host in the project virtualenv (`.venv/`), created by `agent-make venv`. Never install project dependencies into the system interpreter.
+- Integration tests may start the project's own services (e.g. the review server) as subprocesses or via the ASGI test client. They must not require any external daemon that `agent-make doctor` does not check for.
+- Tests that need `ffmpeg`/`ffprobe` MUST skip cleanly when the binary is missing, so a host without it still gets a meaningful unit-test run.
+- Match the test entry points listed in `AGENTS.md` COMMANDS section (`agent-make test`, `agent-make utest`, `agent-make itest`). All invocations go through `agent-make` — see AGENTS.md MAKE COMMAND POLICY.
 
 ## Stabilization Checklist (Python-specific, per fix cycle)
 - Imports remain at file top (PEP 8) — no lazy imports introduced by the fix.
@@ -59,6 +64,6 @@ def do_smth_request():
 - No new lazy imports inside functions unless documented as a circular-dependency workaround.
 
 ## Review Checklist Add-ons (Python-specific)
-- `async` correctness: no blocking I/O on async paths (`requests`, `time.sleep`, sync DB drivers); use `asyncio.to_thread` for unavoidable sync calls.
-- SQLAlchemy session lifetime: session-per-request, no session leak across services.
-- Pydantic models: `from_attributes=True` where ORM compatibility is needed; avoid silent type coercion in request schemas.
+- `async` correctness: no blocking I/O on async paths (`requests`, `time.sleep`, CPU-bound decode or ffmpeg calls); use `asyncio.to_thread` for unavoidable sync work in the review server.
+- Pydantic models: manifest models mirror `spec/002_manifests.md` exactly; avoid silent type coercion, and keep times as floats in seconds rather than accepting stringly-typed input.
+- Subprocess calls to `ffmpeg`/`ffprobe` pass argument lists, never shell strings, and always set a timeout.

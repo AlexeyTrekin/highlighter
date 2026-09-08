@@ -5,3 +5,16 @@
 .plans/
 .data/
 .DS_Store
+
+# Host virtualenv and build artifacts. `agent-make venv` recreates all of it.
+.venv/
+__pycache__/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.coverage
+
+# Working project directories: footage, manifests and renders.
+projects/

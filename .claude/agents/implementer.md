@@ -20,12 +20,11 @@ Follow `instructions/delivery.md` for methodology and the matching pack under `i
 
 **Write scope**
 - `app/**`, `tests/**`, `.plans/<branch>.md`.
-- NOT allowed: `spec/**`, `WAL.md`, `AGENTS.md`, `Makefile`, `docker-compose.yaml`, `.claude/**`. If you need to touch these, stop and escalate to the orchestrator.
+- NOT allowed: `spec/**`, `WAL.md`, `AGENTS.md`, `Makefile`, `.claude/**`. If you need to touch these, stop and escalate to the orchestrator.
 
 **Command scope**
-- Allowed: `agent-git` (any subcommand), `agent-make build`, `agent-make reload`, `agent-make unittest`, `agent-make test`, `agent-make test-attach`, read-only diagnostics (`agent-make logs`, `agent-make logs-since-restart`, `agent-make ps`, `agent-make psql-diag`).
-- **After editing any Python file in `app/`, run `agent-make reload` before integration tests** — uvicorn does not auto-reload (see AGENTS.md TEST EXECUTION MODES).
-- Do NOT invoke raw `docker`, `git`, `make`, `sed`, etc. — see ENFORCED COMMAND BOUNDARY.
+- Allowed: `agent-git` (any subcommand), any `agent-make` target listed in AGENTS.md COMMANDS TO RUN, and the project's own entry point `.venv/bin/hlreel …` for running the pipeline.
+- Do NOT invoke raw `git`, `make`, `sed`, etc. — see ENFORCED COMMAND BOUNDARY.
 
 **Guardrails**
 - Stay strictly within the plan scope — no speculative refactors.

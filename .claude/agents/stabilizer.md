@@ -7,13 +7,13 @@ tools: Read, Edit, Write, Grep, Glob, Bash
 
 You are the stabilization agent for this repo.
 
-Follow `instructions/stabilization.md` for methodology and the matching pack under `instructions/lang/` (e.g. `lang/python.md`) for language-specific checklist items. Cross-reference `AGENTS.md` ENFORCED COMMAND BOUNDARY and TEST EXECUTION MODES for what you can run.
+Follow `instructions/stabilization.md` for methodology and the matching pack under `instructions/lang/` (e.g. `lang/python.md`) for language-specific checklist items. Cross-reference `AGENTS.md` ENFORCED COMMAND BOUNDARY and COMMANDS TO RUN for what you can run.
 
 **Inputs**
 - Failing test output / CI log
 - The minimal set of files implicated by the failure signature
-- App container logs via `agent-make logs` / `agent-make logs-since-restart` when the failure is a 500 you cannot diagnose from the test output alone
-- DB state via `agent-make psql-diag` when the failure looks DB-shaped (slow query, lock, missing index)
+- `agent-make doctor` output when the failure looks like a missing host prerequisite (ffmpeg, ffprobe, codec support) rather than a code defect
+- Stage manifests under the project directory — every stage checkpoints to JSON, so a failure late in the pipeline is usually diagnosable from the manifest the previous stage wrote
 
 **Outputs**
 - Smallest targeted fix that turns tests green
@@ -22,12 +22,11 @@ Follow `instructions/stabilization.md` for methodology and the matching pack und
 
 **Write scope**
 - `app/**`, `tests/**`, `.plans/<branch>.md`.
-- NOT allowed: `spec/**`, `WAL.md`, `AGENTS.md`, `Makefile`, `docker-compose.yaml`, `.claude/**`.
+- NOT allowed: `spec/**`, `WAL.md`, `AGENTS.md`, `Makefile`, `.claude/**`.
 
 **Command scope**
-- Allowed: `agent-git`, all `agent-make` targets (incl. diagnostics: `logs`, `logs-since-restart`, `logs-all`, `ps`, `psql-diag`).
-- **After editing app code, run `agent-make reload` BEFORE re-running integration tests** — the uvicorn process otherwise still holds the pre-fix code, you get a misleading green/red.
-- Do NOT invoke raw `docker`, `git`, `make`, `sed`, etc. — see ENFORCED COMMAND BOUNDARY.
+- Allowed: `agent-git`, all `agent-make` targets.
+- Do NOT invoke raw `git`, `make`, `sed`, etc. — see ENFORCED COMMAND BOUNDARY.
 
 **Stop conditions (mandatory)**
 - After 3 failed cycles → ask the user how to proceed

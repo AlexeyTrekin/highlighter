@@ -59,7 +59,11 @@ Read the `agent-git BLOCKED:` line — it is the spec. **Do not work around it.*
 
 # MAKE COMMAND POLICY FOR AGENTS
 
-Use `agent-make` for every build / test / lint invocation in this repo. Raw `make` and direct `docker` / `docker-compose` calls usually require manual approval and bypass the watched-file verification.
+Use `agent-make` for every build / test / lint invocation in this repo. Raw `make` usually requires manual approval and bypasses the watched-file verification.
+
+The project runs directly on the host (`spec/004_stack.md`). `agent-make` targets drive a
+local virtualenv (`.venv/`) and host tools (`ffmpeg`, `ffprobe`), and `agent-make doctor`
+is what verifies those tools are present before a stage needs them.
 
 ## Usage
 - `agent-make <target> [<target>…]` — root Makefile (`agent-make test`, `agent-make lint test`).
@@ -68,8 +72,8 @@ Use `agent-make` for every build / test / lint invocation in this repo. Raw `mak
 - `VAR=val` overrides (e.g. `agent-make itest SERVICE=inference`) are allowed **only** for variable names a human listed in `agent-make.allowed-vars`, with values matching `agent-make.var-pattern` (a metacharacter-free charset). If the variable you need isn't allowlisted, STOP and ask the user to add it — don't work around it.
 
 ## What `agent-make` enforces
-- Fetches `origin/<protected branch>` and verifies every watched file (typically `Makefile`, `docker-compose.yaml`) byte-for-byte against the remote before running. **Any local modification to a watched file blocks every `agent-make` invocation.**
-- `agent-make.files` may use globs (`services/*/Makefile`, `compose/**/*.yml`); every path a glob matches is verified the same way, so a new service is covered as soon as its Makefile exists.
+- Fetches `origin/<protected branch>` and verifies every watched file (here: `Makefile`) byte-for-byte against the remote before running. **Any local modification to a watched file blocks every `agent-make` invocation.**
+- `agent-make.files` may use globs (`services/*/Makefile`); every path a glob matches is verified the same way, so a new sub-project is covered as soon as its Makefile exists.
 - Optional per-repo target allowlist (`agent-make.allowed-targets`) — unlisted targets are blocked.
 
 ## When `agent-make` blocks you
@@ -78,12 +82,28 @@ Use `agent-make` for every build / test / lint invocation in this repo. Raw `mak
 - *"VAR=val overrides are not enabled"* / *"Variable 'X' is not in agent-make.allowed-vars"* — STOP and ask the user to allowlist it via `agent-repo-init --allowed-vars …`.
 - *"Sub-Makefile '<path>' is not covered by agent-make.files"* — STOP and ask the user to add it (or a matching glob) via `agent-repo-init --files …`.
 
+# ENFORCED COMMAND BOUNDARY
+
+The two policies above are the whole boundary, and `.claude/settings.json` enforces them
+mechanically so an agent cannot cross it by accident:
+
+- **Version control** → `agent-git` only. Raw `git` is denied.
+- **Build, test, lint** → `agent-make` only. Raw `make` is denied.
+- **Running the application** → the project's own entry point, `.venv/bin/hlreel …`
+  (`spec/009_agent_surface.md`). This is app usage, not a build step, so it does not go
+  through `agent-make`.
+- Denied outright: raw `git`, `make`, `sed`, `awk`, `curl`, `wget`, `rm`, `mv`, and
+  system-wide `pip`/`python`.
+
+When a command you need is denied, that is a decision, not an obstacle: stop and surface it
+with the exact block message rather than looking for another route to the same effect.
+
 # PROJECT STRUCTURE AND ADDRESSING
-- Dockerfile: image for both test and deployment
-- Makefile: local build, test and run
+- Makefile: venv bootstrap, test, lint and run — the only supported entry point (via `agent-make`)
 - /spec: contains specifications, ordered by hierarchy: the very foundation in 001, then go the most important architecture details (api, db, stack), all further decisions and rationale are documented in subsequent files
 - /app: application code
 - /tests/unit, /tests/it - unit- and integration- tests
+- .data/ - **gitignored** local media: source footage and music tracks used for real-footage validation. Never committed, never uploaded.
 - WAL.md - persistent journal of completed steps and the WHY of each decision. Distilled, committed, survives across branches.
 - .plans/ - **gitignored** per-branch agent handover scratchpad. One file per feature branch: `.plans/<sanitized-branch-name>.md` (slashes in the branch name become dashes, e.g. `feature/foo-bar` → `.plans/feature-foo-bar.md`). Holds the detailed step plan, stabilization discoveries, push-back rounds, and Final Review Summary. Never reaches the remote; the distilled motivation lands in WAL.md at merge.
 
@@ -176,7 +196,7 @@ Execute it every time a session is initiated.
 - These companion files augment this `AGENTS.md`; they do not override specification requirements.
 
 # LANGUAGE PACKS (SCOPED)
-- `instructions/lang/python.md`: Python conventions (PEP 8, module-function pattern, alembic, containerized tests). Applies to `{app,alembic,tests}/**`.
+- `instructions/lang/python.md`: Python conventions (PEP 8, module-function pattern, JSON-manifest persistence, venv-based tests). Applies to `{app,tests}/**`.
 - Add packs for other languages under `instructions/lang/` as the project grows. Each pack declares its own scope via `applyTo:` frontmatter.
 - During delivery, stabilization, and review, consult the pack(s) matching the files being touched. If no pack covers a language present in the diff, ask the user before inventing conventions.
 
@@ -203,21 +223,27 @@ limited connections to avoid server DDoS protection, issues can start around 40 
 # COMMANDS TO RUN
 All build/test invocations go through `agent-make` (raw `make` requires manual approval per call and bypasses watched-file verification).
 
-`agent-make build` — build container
-`agent-make run` — run full system with docker-compose setup
-`agent-make test` — full test suite with image rebuild (default `BUILD=1` in the Makefile)
+`agent-make doctor` — check host prerequisites (python, ffmpeg with libvidstab, ffprobe)
+`agent-make venv` — create/refresh `.venv/` and install the project with dev extras
+`agent-make test` — full test suite
 `agent-make utest` — unit tests only
 `agent-make itest` — integration tests only
-`agent-make test-attach` — full test suite with source code mounted from local repo (no rebuild, fast iteration)
-`agent-make test-attach-shell` — shell inside the test container with live local code mounted
+`agent-make lint` — ruff check + format check
+`agent-make fmt` — ruff format (writes)
+`agent-make run` — start the review server on the host (arrives with WAL step 3.1)
+`agent-make bench` — score candidate ranking against recorded human verdicts (WAL step 2.2)
+`agent-make clean` — remove `.venv/`, caches and build artifacts
 
-Note: `agent-make` accepts `VAR=val` overrides only for variables a human listed in `agent-make.allowed-vars` (this repo lists none, so overrides like `BUILD=0` are rejected here). Use a dedicated target instead — `test-attach` is the no-rebuild path; `test` is the rebuild path.
+`run` and `bench` are wired ahead of the CLI commands they call, because `agent-make`
+verifies the `Makefile` against `origin/master` and a later edit would block every branch
+until it is merged. Until those WAL steps land they fail with `No such command`.
 
-# TEST EXECUTION MODES
-- Rebuild mode (safer): `agent-make test` — use after major changes, dependency/migration updates, Dockerfile changes, or when image state might affect behavior.
-- Attached-code mode (faster): `agent-make test-attach` — use for quick iterations when only app/tests code changed and installed dependencies are unchanged.
-- Interactive attached mode: `agent-make test-attach-shell` — use when you need a shell in the test container with live local code mounted.
-- If `agent-make` blocks with *"local files differ from origin/master"*, a watched file (Makefile, docker-compose, etc.) was edited locally — escalate to the user. Do not undo other work to satisfy the check.
+All targets depend on `venv` where they need it, so a fresh checkout only needs
+`agent-make test`. If `agent-make` blocks with *"local files differ from origin/master"*,
+the `Makefile` was edited locally — escalate to the user. Do not undo other work to satisfy
+the check.
+
+Note: `agent-make` accepts `VAR=val` overrides only for variables a human listed in `agent-make.allowed-vars` (this repo lists none, so any `VAR=val` is rejected here). Add a dedicated target instead of reaching for a variable.
 
 # TERMINAL COMMAND BATCHING
 - Read-only commands (`agent-git status`, `agent-git diff`, `agent-git log`, `agent-git show`, etc.) are allowlisted — call them directly, don't batch.
@@ -327,4 +353,4 @@ commit message, not a comment.
 
 # IMPLEMENTATION GUIDELINES
 - Methodology: `instructions/delivery.md` (includes COMMENTS DESCRIBE THE CODE, NOT ITS HISTORY).
-- Language style: matching pack under `instructions/lang/` (e.g. `lang/python.md` for `{app,alembic,tests}/**`).
+- Language style: matching pack under `instructions/lang/` (e.g. `lang/python.md` for `{app,tests}/**`).
