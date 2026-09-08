@@ -34,7 +34,7 @@ later.
 ## Phase 1: Walking skeleton
 
 ### 1.1 End-to-end reel with naive selection
-[ready-for-review] ingest → probe → naive candidates → fitted music grid → naive EDL → render,
+[v] ingest → probe → naive candidates → fitted music grid → naive EDL → render,
 plus the five structural rules the prototype's defects exposed.
 
 Value comes from a watchable reel, not from a good one. Getting the whole path working with
@@ -88,8 +88,75 @@ so the tightened rule has plenty of headroom.
 ## Phase 2: Good moments
 
 ### 2.1 Camera-compensated activity, halt detection, closing speed
-[ ] Replace frame-diff energy with compensated flow; anchor windows on the halt; add
-pose-based closing speed behind an optional backend.
+[ready-for-review] Person detection, camera-compensated activity, halt-anchored windows, quality gates, a
+configurable composite score, and material classification. New `analyze` stage: the only one
+that decodes whole videos, so everything downstream reads `analysis/vNN.json` instead.
+
+**A baseline must be the resting level, not the median.** The first halt detector took "settled
+below the clip's baseline" to mean the median and found no halts at all. A clip is mostly *not*
+fencing — approach, reset, the referee talking — so its median sits at the resting level and
+nothing can fall below it. Settling is now measured against the clip's own 25th-to-95th
+percentile range, which is also what makes the test scale-invariant across distance and light.
+
+**Material classification cannot use motion, and the first attempt did.** A rule keyed on how
+much movement there is called every calm window "fencing measured from slightly further out" —
+because a hug is vigorous and a salute can include a clash. What separates them is what the
+*distance between the fighters* does: fencing closes to hit and breaks to reset, an embrace
+comes together and stays, a walk-on holds its distance. Two features carry it — the gap's
+interquartile range and how often it crosses into measure.
+
+`unknown` is a third verdict rather than a placeholder. Fencing is a continuum; a window near
+the thresholds is genuinely undecided, and forcing it is how a lunge lands under a still chord
+behind a green check.
+
+**A halt-anchored stage can only propose exchanges.** Warm-ups, salutes and walk-ons produce
+no halt, so the drumless intro had nothing honest to draw on however good the classifier was.
+Stable-gap windows were added, and then solo windows on top: measuring a gap needs two
+fighters, so a one-person walk-on has no gap to hold steady and stable-gap detection could
+never find one. The collection holds four such runs; three reached the reel.
+
+**Known limitation.** Stable gap cannot separate an embrace from point-fencing at long
+measure — both hold their distance, and on this footage the highest-scoring "calm" windows
+were the latter. The director works around it by ordering quiet slots by fewest fighters on
+camera rather than by score, which is a preference, not a fix. Separating those two properly
+needs a signal this build does not have: blade tracking, or a vision model on the frames.
+
+**Recordings open mid-action, and that cost real exchanges.** On the real footage the halt
+detector fired one second into 28- and 31-second clips — genuine halts, because the camera
+comes up on an exchange already under way. Two consequences, fixed separately: a fall with no
+action before it is not a halt at all (a quiet opening was producing them), and a long source
+now spends its three-window budget only on windows long enough to be cut. Before the second
+fix an unusable one-second window displaced a real exchange later in the same clip. Usable
+windows went from 45 to 54.
+
+**Letterbox, not stretch.** The prototype squashed 16:9 into the detector's square input.
+Since the fighter test is box height as a fraction of frame height, a distorted aspect ratio
+corrupts exactly the measurement it feeds.
+
+**Spectators were being promoted to fighters.** Taking the two tallest boxes over 22 % of frame
+height sounds sufficient until you measure the crowd: fighters run 52-56 %, spectators 20-27 %.
+Whenever a fighter left frame the next-tallest bystander filled the slot, so "both fighters
+visible" was true in every window of every clip — useless precisely when it mattered. Fighters
+stand at the same distance from the camera and so appear the same height, so the second box
+must now be at least 60 % of the tallest. Two-fighter frames fell from 99 % to 84 %, which is
+what made walk-ons visible at all.
+
+**The coda rule became implementable.** With clips classified, `fade_target` stopped saying
+"material unknown" and started reporting a real defect — the outro fade covering a fight clip,
+which is exactly what the user objected to in v3. The director now prefers non-fight material
+for the fade. Preferred rather than required, unlike the drumless intro: an action clip under
+a quiet opening is jarring, whereas under a fade-out it is merely a wasted finale, and
+truncating the reel to avoid one would be the worse trade.
+
+Weights live in `project.json` rather than in code because they are the thing the benchmark
+tunes. Left untuned here: several windows saturate the activity scale and score 1.000, which
+compresses the top of the ranking. Fixing that by eye would be fitting to an invented number;
+2.2 measures it against the recorded verdicts instead. Model weights are fetched, not committed: they are large and not ours to redistribute,
+and `hlreel fetch-models` is the only command that touches the network.
+
+The pose backend for `closing_speed` is deliberately not built. The spec declares it optional
+and specifies a box-centre fallback; shipping the free version first lets 2.2 say whether pose
+earns a GPU dependency instead of assuming it does.
 
 ### 2.2 Benchmark against recorded human verdicts
 [ ] `hlreel bench` reporting rank agreement on the 69 windows with known agent and user

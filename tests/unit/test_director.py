@@ -222,6 +222,69 @@ def test_a_source_that_only_fills_one_bar_survives_the_gate():
     assert edl.clips[0].source_id == "v02", "the short source can only fill the opening"
 
 
+def test_the_intro_prefers_known_calm_material_over_unclassified():
+    """Score ranks fencing quality, so letting `unknown` win a quiet slot on score is how a
+    lunge ends up under a still chord."""
+    project = project_with([("v01", 20.0), ("v02", 20.0)], duration_s=12.0)
+    candidates = candidates_for(
+        [("c001", "v01", 20.0, 0.99, "unknown"), ("c002", "v02", 20.0, 0.10, "non_action")]
+    )
+
+    edl = director.run(project, music_with([], drum_bar=3), candidates)
+
+    assert edl.clips[0].material == "non_action"
+
+
+def test_the_intro_prefers_the_least_fight_like_window():
+    """On real footage the highest-scoring calm clip is fencing at long measure — holding a
+    distance is exactly what makes a window read as calm. Fewest fighters on camera is the
+    strongest evidence nothing is being fought."""
+    project = project_with([("v01", 20.0), ("v02", 20.0)], duration_s=12.0)
+    candidates = candidates_for(
+        [("c001", "v01", 20.0, 0.80, "non_action"), ("c002", "v02", 20.0, 0.20, "non_action")]
+    )
+    # The lower-scoring window is a walk-on: one person on camera.
+    candidates.candidates[1].features.both_visible_frac = 0.0
+    candidates.candidates[0].features.both_visible_frac = 1.0
+
+    edl = director.run(project, music_with([], drum_bar=3), candidates)
+
+    assert edl.clips[0].candidate_id == "c002"
+
+
+def test_the_outro_fade_prefers_a_coda_over_a_fight_clip():
+    """The v3 defect: the fade landed on one of the best action moves instead of a coda."""
+    sections = [
+        Section(name="intro", level="major", bar_start=0, bar_end=5, energy=0.5),
+        Section(name="s1", level="major", bar_start=6, bar_end=9, energy=9.0),
+        Section(name="outro", level="major", bar_start=10, bar_end=11, energy=1.0),
+    ]
+    project = project_with([(f"v{i:02d}", 20.0) for i in range(1, 9)], duration_s=24.0)
+    # The highest-scoring windows are all action; one calm clip exists for the fade.
+    entries = [(f"c{i:03d}", f"v{i:02d}", 20.0, 0.9 - i * 0.05, "action") for i in range(1, 8)]
+    entries.append(("c008", "v08", 20.0, 0.1, "non_action"))
+
+    edl = director.run(project, music_with(sections), candidates_for(entries))
+
+    assert edl.clips[-1].material == "non_action", "the fade must not cover a fight clip"
+
+
+def test_the_coda_preference_yields_rather_than_truncating_the_reel():
+    """Unlike the drumless intro this is a preference: ending the reel early to avoid an
+    action clip under a fade-out would be the worse trade."""
+    sections = [
+        Section(name="intro", level="major", bar_start=0, bar_end=5, energy=0.5),
+        Section(name="outro", level="major", bar_start=6, bar_end=7, energy=1.0),
+    ]
+    project = project_with([(f"v{i:02d}", 20.0) for i in range(1, 6)], duration_s=16.0)
+    entries = [(f"c{i:03d}", f"v{i:02d}", 20.0, 0.5, "action") for i in range(1, 6)]
+
+    edl = director.run(project, music_with(sections), candidates_for(entries))
+
+    assert edl.clips, "no coda available must not empty the reel"
+    assert edl.clips[-1].grid_slot >= 6
+
+
 def test_the_director_is_deterministic():
     """Clips must not move between runs; a user cannot tell drift from an improvement."""
     project = project_with([(f"v{i:02d}", 20.0) for i in range(1, 6)])

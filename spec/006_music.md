@@ -130,6 +130,15 @@ Concretely: **no fight clip is scheduled before the drums arrive.** The drumless
 warm-ups, walk-ons, salutes and hugs, and an action clip placed there reads as a mistake even
 when it lands exactly on a bar line.
 
+Where material is known, prefer it over material nothing could classify: `unknown` winning a
+quiet slot on score is how a lunge ends up under a still chord.
+
+Within the intro and the coda, order candidates by **how unlike an exchange they are**, not by
+score. The composite score ranks fencing quality, and using it here picks the most watchable
+of the calm clips — which on real footage means fencing at long measure, since holding a
+distance is precisely what makes a window read as calm. Fewest fighters on camera is the
+strongest available evidence that nothing is being fought.
+
 ## Mapping rules for the director
 
 These are the rules that worked, recorded here because they are musical judgements rather

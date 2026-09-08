@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 import soundfile
 
-from app import host
+from app import assets, host
 
 # Which fourcc an OpenCV build can write varies by platform and wheel, so fixtures pick one
 # that actually opens rather than assuming a codec is present.
@@ -13,9 +13,11 @@ SAMPLE_RATE = 22050
 
 
 def pytest_runtest_setup(item: pytest.Item) -> None:
-    """Skip ffmpeg-dependent tests on a host without it, so the suite still runs bare."""
+    """Skip tests whose prerequisites are absent, so the suite still runs on a bare host."""
     if item.get_closest_marker("needs_ffmpeg") and not host.has_ffmpeg():
         pytest.skip("ffmpeg/ffprobe not installed on this host")
+    if item.get_closest_marker("needs_model") and not assets.available(assets.YOLOV8N):
+        pytest.skip("detector weights not fetched — run `hlreel fetch-models`")
 
 
 def write_video(directory, name, gray_levels, fps, size=(64, 36)):
@@ -38,9 +40,66 @@ def write_video(directory, name, gray_levels, fps, size=(64, 36)):
     pytest.skip("this OpenCV build cannot write a video with any known fourcc")
 
 
+def exchange_offsets(quiet: int, busy: int, tail: int) -> list[int]:
+    """Per-frame positions of a moving block, shaped like an exchange.
+
+    Quiet, then busy, then quiet again — the shape a halt detector needs to find anything
+    (`spec/005_scoring.md`). Motion has to come from something *moving* rather than from the
+    whole frame changing brightness, because a brightness swing is what the scene-cut gate
+    exists to catch.
+    """
+    return (
+        [(index % 2) * 2 for index in range(quiet)]
+        + [(index % 2) * 40 for index in range(busy)]
+        + [(index % 2) * 2 for index in range(tail)]
+    )
+
+
+def write_moving_video(directory, name, offsets, fps, size=(160, 90)):
+    """A video of a pale block sliding on a constant background.
+
+    Mean brightness barely moves, so the footage carries motion without looking like a cut.
+    """
+    width, height = size
+    block_w, block_h = width // 6, height // 2
+    top = (height - block_h) // 2
+    frames = []
+    for offset in offsets:
+        frame = np.full((height, width, 3), 90, dtype=np.uint8)
+        left = min(max(0, width // 4 + offset), width - block_w)
+        frame[top : top + block_h, left : left + block_w] = 200
+        frames.append(frame)
+
+    for fourcc, suffix in CODECS:
+        path = directory / f"{name}{suffix}"
+        writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*fourcc), fps, (width, height))
+        if not writer.isOpened():
+            writer.release()
+            continue
+        for frame in frames:
+            writer.write(frame)
+        writer.release()
+        probe = cv2.VideoCapture(str(path))
+        readable = probe.isOpened()
+        probe.release()
+        if readable:
+            return path
+    pytest.skip("this OpenCV build cannot write a video with any known fourcc")
+
+
 @pytest.fixture
 def video_factory():
     return write_video
+
+
+@pytest.fixture
+def moving_video_factory():
+    return write_moving_video
+
+
+@pytest.fixture
+def exchange():
+    return exchange_offsets
 
 
 @pytest.fixture

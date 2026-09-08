@@ -11,9 +11,14 @@ Verdict = Literal["keep", "drop", "unsure"]
 Side = Literal["L", "R"]
 
 # What a clip contains, which decides where in the music it may go (`spec/006_music.md`).
-# "unknown" is the honest answer until a detector exists; the director treats it as such
-# rather than assuming either way.
+# "unknown" is a real verdict, not a placeholder: fencing is a continuum and a window near the
+# thresholds is genuinely undecided. Forcing it either way is how a fight clip lands under a
+# quiet chord with a green check.
 Material = Literal["action", "non_action", "unknown"]
+
+# How a window came to be proposed. The gates differ: an exchange needs both fighters in
+# frame to be worth anything, while a walk-on with one person is exactly intro material.
+Origin = Literal["halt", "fallback", "calm"]
 
 # A clip is normally at least two bars — one action. The reel's opening may be a single bar,
 # so a section whose first musical step falls one bar in can still be cut there instead of at
@@ -31,6 +36,12 @@ class Features(BaseModel):
     both_visible_frac: float = 0.0
     min_gap: float | None = None
     closing_speed: float | None = None
+    # How much the distance between the fighters moves over the window, in body-heights.
+    # Fencing swings it; an embrace or a walk-on holds it steady however vigorous they look.
+    gap_variation: float | None = None
+    # How often they cross from out of measure to in, or back. An exchange does this; two
+    # people standing at salute, or hugging, do not.
+    measure_crossings: int = 0
 
 
 class AgentVerdict(BaseModel):
@@ -50,6 +61,7 @@ class Candidate(BaseModel):
     end: float
     anchor: float
     kind: Kind
+    origin: Origin = "halt"
     material: Material = "unknown"
     features: Features = Field(default_factory=Features)
     score: float = 0.0

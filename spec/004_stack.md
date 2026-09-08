@@ -48,6 +48,26 @@ Dev: `pytest`, `pytest-cov`, `httpx` (ASGI test client), `ruff`.
 **PyTorch is not a runtime dependency.** Detection runs through ONNX Runtime on CPU. Anything
 that needs torch belongs behind an optional backend (below).
 
+## Model assets
+
+Weights are not in the repository: they are large, and not ours to redistribute. They live in
+a gitignored `models/` and are fetched on demand by `hlreel fetch-models`, which is the **only
+command that reaches the network**.
+
+Each asset is pinned by SHA-256 and lands on a temp name before being renamed into place, so
+an interrupted download cannot leave a truncated file that later looks present. `doctor`
+reports a missing or mismatched asset as a prerequisite failure — a stage discovering it
+minutes into an analysis run is a worse way to find out.
+
+Being honest about what the pin buys: the digest was recorded from the first download rather
+than published by an authority. It protects against the file changing at its source, not
+against it having been wrong to begin with. Anyone re-pointing an asset at a new URL should
+treat the first fetch as the trust decision.
+
+| asset | used by | source |
+|---|---|---|
+| `yolov8n.onnx` | person detection (`005_scoring.md`) | the ONNX export the reference prototype ran on, so rankings stay comparable across it |
+
 ## Manifest schemas
 
 Every manifest in `002_manifests.md` MUST have a corresponding pydantic model. The models are

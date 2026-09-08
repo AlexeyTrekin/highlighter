@@ -10,7 +10,7 @@ from pathlib import Path
 
 import typer
 
-from app import __version__, host, pipeline
+from app import __version__, assets, host, pipeline
 from app import project as project_store
 from app.manifests import base, qa
 from app.manifests.edl import Edl
@@ -49,6 +49,26 @@ def doctor(as_json: bool = typer.Option(False, "--json", help="Emit the results 
 def version(as_json: bool = typer.Option(False, "--json", help="Emit the result as JSON.")) -> None:
     """Print the package version."""
     typer.echo(json.dumps({"version": __version__}) if as_json else __version__)
+
+
+@cli.command(name="fetch-models")
+def fetch_models(
+    force: bool = typer.Option(False, "--force", help="Re-download even if a copy is present."),
+) -> None:
+    """Download the model files the pipeline needs.
+
+    Weights are not in the repository — they are large and not ours to redistribute — so this
+    is the one command that reaches the network.
+    """
+    for asset in assets.REGISTRY.values():
+        typer.echo(f"{asset.name}: {asset.purpose}")
+        typer.echo(f"  from {asset.url}")
+        try:
+            path = assets.fetch(asset, force=force)
+        except assets.AssetError as error:
+            typer.echo(f"  failed: {error}", err=True)
+            raise typer.Exit(EXIT_STAGE_FAILED) from error
+        typer.echo(f"  -> {path} ({path.stat().st_size / 1e6:.1f} MB)")
 
 
 @cli.command()

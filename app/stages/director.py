@@ -51,7 +51,7 @@ def run(project: Project, music: Music, candidates: Candidates) -> Edl:
     previous_source: str | None = None
 
     for slot, bars in plan_slots(music, total_bars):
-        chosen = choose(pool, project, music, bars, slot, drumless, previous_source)
+        chosen = choose(pool, project, music, bars, slot, drumless, previous_source, total_bars)
         if chosen is None:
             # Skipping would leave a hole in the timeline and every later clip would start on
             # the wrong bar, so the reel ends here instead.
@@ -93,9 +93,21 @@ def ranked(project: Project, music: Music, candidates: Candidates) -> list[Candi
 
 
 def fills(candidate: Candidate, project: Project, music: Music, bars: int) -> bool:
-    """Whether the candidate's source can supply `bars` of footage ending at its window end."""
+    """Whether this candidate can be cut to `bars` without leaving what was examined.
+
+    A clip is anchored at its window end and reaches back `bars * bar_s`. For an exchange that
+    is deliberate — the reach-back is the approach, and the window was only ever the action
+    (`spec/005_scoring.md`). For a calm window it is not: the label says what the *window*
+    contains, and reaching past its start renders footage no classifier looked at. A two-second
+    stable stretch dropped into a two-bar slot brings four seconds to the screen, and the two
+    that were never examined are most often the tail of the exchange that preceded it.
+    """
     source = source_by_id(project, candidate.source_id)
-    return max_bars(candidate, music.grid.bar_s, source.duration_s) >= bars
+    if max_bars(candidate, music.grid.bar_s, source.duration_s) < bars:
+        return False
+    if candidate.origin == "calm":
+        return candidate.end - candidate.start >= bars * music.grid.bar_s - 1e-9
+    return True
 
 
 def bar_budget(music: Music, target_s: float) -> int:
@@ -183,6 +195,7 @@ def choose(
     slot: int,
     drumless_bars: int,
     previous_source: str | None,
+    total_bars: int,
 ) -> tuple[Candidate, str] | None:
     """Best candidate for this slot, with the reason it was placed there.
 
@@ -196,16 +209,55 @@ def choose(
     if not eligible:
         return None
 
+    # One clip, not the whole outro. `spec/006_music.md` asks for a single coda under the
+    # fade, and `fade_target` inspects only the last clip; filtering every slot of a long
+    # outro to non-fight material would empty the end of the reel to satisfy a rule about
+    # one of them.
+    coda = slot + bars >= total_bars and coda_bar(music, total_bars) is not None
+    if quiet or coda:
+        # Under a quiet opening or a fade-out, prefer material known to be non-fight over
+        # material nothing could classify. `unknown` beating `non_action` on an action score
+        # is how a lunge ends up under a quiet chord: the score ranks how *interesting* a
+        # window is, which is the wrong question here.
+        eligible = [c for c in eligible if c.material == "non_action"] or eligible
+        if coda:
+            # Preferred rather than required, unlike the drumless intro. An action clip under
+            # a quiet opening is jarring; under a fade-out it is merely a wasted finale, and
+            # ending the reel early to avoid it would be the worse trade.
+            eligible = [c for c in eligible if c.material != "action"] or eligible
+
     varied = [c for c in eligible if c.source_id != previous_source]
-    pick = (varied or eligible)[0]
+    shortlist = varied or eligible
+    if quiet or coda:
+        # Order by how *unlike* an exchange the window is, not by how interesting it is. The
+        # score ranks fencing quality, and using it here picks the most watchable of the calm
+        # clips — which on real footage means fencing at long measure, because holding a
+        # distance is exactly what makes a window read as calm. Fewest fighters on camera is
+        # the strongest evidence that nothing is being fought.
+        shortlist = sorted(shortlist, key=lambda c: (c.features.both_visible_frac, -c.score))
+    pick = shortlist[0]
 
     if quiet:
         reason = f"bars {slot}-{slot + bars - 1} are drumless; picked {pick.material} material"
+    elif coda:
+        reason = f"the outro fade covers this clip; picked {pick.material} material"
     else:
         reason = f"highest remaining score ({pick.score:.3f}) that fills {bars} bars"
     if not varied:
         reason += "; no other source could fill this slot"
     return pick, reason
+
+
+def coda_bar(music: Music, total_bars: int) -> int | None:
+    """Where the outro begins, if the track has one.
+
+    The last major section is what the fade covers, and `spec/006_music.md` wants a coda
+    there rather than the finale.
+    """
+    majors = [s for s in music.sections if s.level == "major" and s.bar_start < total_bars]
+    if len(majors) < 2:
+        return None
+    return max(s.bar_start for s in majors)
 
 
 def to_clip(

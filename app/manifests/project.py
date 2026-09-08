@@ -28,6 +28,30 @@ class Source(BaseModel):
     shape: Shape
 
 
+class ScoringWeights(BaseModel):
+    """How the composite score trades its features off against each other.
+
+    Configuration rather than code constants because these are exactly what the benchmark
+    tunes against recorded human verdicts (`spec/005_scoring.md`). The `*_scale` values are
+    the level at which a raw feature counts as full marks.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    peak_activity: float = 1.0
+    closing_speed: float = 1.0
+    both_visible_frac: float = 0.5
+    min_gap: float = 0.5
+    median_sharpness: float = 0.25
+
+    activity_scale: float = 20.0
+    closing_scale: float = 2.0
+    sharpness_scale: float = 500.0
+
+    def for_feature(self, name: str) -> float:
+        return float(getattr(self, name))
+
+
 class Options(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -36,6 +60,7 @@ class Options(BaseModel):
     height: int = 1080
     fps: int = 30
     max_candidates: int = 50
+    weights: ScoringWeights = Field(default_factory=ScoringWeights)
 
 
 class StageStatus(BaseModel):
