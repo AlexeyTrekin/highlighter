@@ -199,10 +199,28 @@ Face recognition and person re-identification are out of scope: fighters are mas
 
 ## Benchmark, not unit test
 
-The handover bundle carries ground truth: 69 candidate windows with both agent and user
-verdicts. It ships as a test fixture, and a `bench` target reports the rank agreement between
-a scorer and the user's keep/drop decisions.
+The handover bundle carries ground truth: 69 candidate windows, of which **16 have a user
+verdict** — six keeps and ten drops. The verdicts are recorded as prose in the bundle's
+`handover.md`, not as fields in its `candidates.json`, which holds the prototype's own features
+and no verdict at all. The agent's judgement of the same windows survives only as which
+thirteen reached the prototype's final EDL.
+
+It ships as a test fixture holding each window's features **as this build measures them** —
+scoring the prototype's recorded numbers would benchmark the prototype. The fixture is
+therefore generated from an analysed project and regenerated when the analysis changes.
+
+A `bench` target reports:
+
+- **Separation** — over every keep/drop pair, how often the kept window scores higher. 1.0
+  means every keep outranks every drop; 0.5 is a coin flip. Chosen over rank correlation
+  because sixteen labelled points are too few for a correlation to mean anything.
+- **Gate recall** — how many kept windows survive the quality gates. A keep dropped before
+  scoring is a worse failure than one ranked badly, and the composite score cannot see it.
+- **Top-of-reel recall** — how many kept windows reach the number of slots a reel actually
+  holds.
 
 This is a **reported metric with a regression floor**, not a pass/fail assertion on exact
 ordering — a scorer that reproduces one person's taste exactly is overfitted, and an
-equality assertion would make every legitimate improvement look like a failure.
+equality assertion would make every legitimate improvement look like a failure. Sixteen labels
+are far too few to fit the weight vector to; the benchmark exists to catch a regression and to
+justify a weight change in writing, not to be optimised against.

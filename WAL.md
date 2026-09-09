@@ -159,12 +159,41 @@ and specifies a box-centre fallback; shipping the free version first lets 2.2 sa
 earns a GPU dependency instead of assuming it does.
 
 ### 2.2 Benchmark against recorded human verdicts
-[ ] `hlreel bench` reporting rank agreement on the 69 windows with known agent and user
-verdicts.
+[ ] `hlreel bench` reporting how well the scorer separates the windows the user kept from the
+ones they dropped.
 
 Reported metric with a regression floor, not a pass/fail assertion: a scorer that reproduces
 one person's taste exactly is overfitted, and an equality test would flag every legitimate
 improvement as a failure.
+
+**The ground truth is smaller than the spec claimed, and lives somewhere else.**
+`spec/005_scoring.md` described "69 candidate windows with both agent and user verdicts". The
+bundle's `candidates.json` holds 69 windows carrying the *prototype's* features and no verdict
+field at all; the user's verdicts are one line of prose in `handover.md` — ten drops and six
+keeps, 16 of 69, the rest unrated. The agent's verdicts survive only as which 13 windows
+reached the v3 EDL. Everything still resolves — all 69 map through `name_map.json` onto sources
+in the working project, and all 16 rated ids are present — but the sample is 6 against 10, not
+69, and the spec now says so. A benchmark built on a number nobody checked would have reported
+a confident figure about labels that do not exist.
+
+**Six keeps and ten drops decide the metric.** Rank correlation over 16 points is noise. The
+honest measure is separation: over all 60 keep/drop pairs, how often the kept window scores
+higher — 1.0 if every keep outranks every drop, 0.5 for a coin flip. Two numbers matter
+alongside it: how many keeps the **quality gates** drop before scoring happens at all, since a
+keep the pipeline cannot rank is a worse failure than one it ranks badly, and how many keeps
+reach the top thirteen, that being the reel the prototype actually built.
+
+**The fixture carries today's features, not the prototype's.** Scoring the prototype's recorded
+numbers would benchmark the prototype. The fixture instead holds each window's features as this
+build measures them, computed once from an analysed project and committed, so `make bench` is
+self-contained and deterministic and measures the weights — which is the thing this step exists
+to tune. The cost is that an analyzer change does not show until the fixture is rebuilt, hence
+a regeneration path on the command. The committed numbers are features, never frames.
+
+**Sixteen labels cannot tune five weights.** Fitting them would be overfitting with a straight
+face. This step measures and records the floor; a weight changes only where the measurement
+shows something plainly wrong, and then the reason is written down rather than the number
+quietly moved.
 
 ## Phase 3: Human loop
 
