@@ -226,7 +226,7 @@ built from, sharing its eligibility test with the director, so it cannot describ
 that never happened.
 
 ### 3.2 Ordering: strict sequence, weights, opening and ending buckets
-[ready-for-review] The musical rules restated over sections rather than drums; `strict` and
+[v] The musical rules restated over sections rather than drums; `strict` and
 `weighted` ordering honoured by the director; conflicts surfaced rather than quietly resolved.
 
 **A rule keyed on an instrument is a rule about one arrangement.** "No fight clip is scheduled
