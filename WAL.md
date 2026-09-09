@@ -169,7 +169,7 @@ improvement as a failure.
 ## Phase 3: Human loop
 
 ### 3.1 Proxies, filmstrips, review server and UI
-[ready-for-review] 360p proxies, posters and filmstrips; the local review server; three-state
+[v] 360p proxies, posters and filmstrips; the local review server; three-state
 verdicts and trims; `review.json` consumed by the director.
 
 Ordering is split into 3.2 rather than bundled here: it is a separate UI surface
