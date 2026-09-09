@@ -134,7 +134,7 @@ kbd {
   font: inherit;
 }
 
-button.complete, button.reset-trim {
+button.complete, button.reset-trim, .order button, #sequence li button {
   padding: .4rem .7rem;
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -155,3 +155,33 @@ button:disabled { opacity: .55; cursor: default; }
 /* An input the file does not hold yet. The value stays on screen — discarding what someone
    just typed or dragged is worse than showing it unsaved — so the outline is what says so. */
 .unsaved, .unsaved.note-input { outline: 2px solid var(--drop); outline-offset: 2px; }
+
+/* The browser's own `[hidden] { display: none }` is a UA rule, so any author `display` here
+   would beat it and a control the page means to hide would stay clickable — which for the
+   ordering blocks means writing a pin the active mode ignores and nothing reports. */
+[hidden] { display: none !important; }
+
+.modes { border: 1px solid var(--line); border-radius: 8px; padding: .3rem .6rem; }
+.modes legend { color: var(--muted); font-size: .8em; padding: 0 .3rem; }
+.modes label { margin-right: .6rem; white-space: nowrap; }
+
+#sequence { margin: 1rem 0; padding: .6rem .8rem; border: 1px solid var(--line); border-radius: 8px; }
+#sequence h2 { margin: 0; font-size: 1rem; }
+#sequence ol { list-style: none; padding: 0; margin: .5rem 0 0; display: grid; gap: .3rem; }
+#sequence li {
+  display: flex;
+  gap: .5rem;
+  align-items: center;
+  padding: .3rem .5rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--card);
+  cursor: grab;
+}
+#sequence li:focus-visible { outline: 2px solid var(--agent); }
+#sequence li button { margin-left: auto; }
+.seq-index { color: var(--muted); min-width: 1.4em; }
+
+.order { display: flex; gap: .4rem; align-items: center; flex-wrap: wrap; }
+.order input[type="range"] { width: 7rem; vertical-align: middle; }
+.card.pinned { border-color: var(--agent); }

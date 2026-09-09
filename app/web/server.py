@@ -18,8 +18,9 @@ from pydantic import BaseModel
 from app import pipeline
 from app import project as project_store
 from app.manifests import base
+from app.manifests import review as review_schema
 from app.manifests.candidates import Candidate
-from app.manifests.review import DEFAULT_VERDICT, Review, Trim, Verdict, verdict_for
+from app.manifests.review import DEFAULT_VERDICT, Order, Review, Trim, Verdict, verdict_for
 from app.stages import proxies as proxies_stage
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -98,6 +99,7 @@ def create_app(root: Path) -> FastAPI:
                 # "agent's call" has not been ruled on.
                 "reviewed": sum(1 for c in usable if verdict_for(review, c.id) != DEFAULT_VERDICT),
                 "bar_s": _bar_s(root),
+                "order": review.order.model_dump_json(),
                 "completed": review.completed,
             },
         )
@@ -176,6 +178,39 @@ def create_app(root: Path) -> FastAPI:
                 review.notes.pop(identifier, None)
 
         edit_review(root, apply)
+        return {"ok": True}
+
+    @app.put("/api/order")
+    def set_order(update: Order):
+        """Record how the user wants the reel ordered.
+
+        Written whole rather than per clip: a sequence is one statement, and applying it in
+        pieces would leave `review.json` describing an order the user never asked for if a save
+        in the middle failed.
+        """
+        known = {c.id for c in pipeline.load_candidates(root).candidates}
+        # Every field, not only the ones this mode reads: an id the active mode ignores is still
+        # written to `review.json`, still reaches the page, and still becomes live the moment
+        # the user switches mode.
+        named = {*update.sequence, *update.opening, *update.ending, *update.weights}
+        unknown = sorted(named - known)
+        if unknown:
+            raise HTTPException(status_code=404, detail=f"unknown candidate {unknown[0]}")
+        out_of_range = sorted(
+            cid
+            for cid, weight in update.weights.items()
+            if not review_schema.WEIGHT_MIN <= weight <= review_schema.WEIGHT_MAX
+        )
+        if out_of_range:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"weight for {out_of_range[0]} is outside "
+                    f"{review_schema.WEIGHT_MIN:.0f}-{review_schema.WEIGHT_MAX:.0f}"
+                ),
+            )
+
+        edit_review(root, lambda review: setattr(review, "order", update))
         return {"ok": True}
 
     @app.post("/api/complete")

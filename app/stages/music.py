@@ -10,13 +10,18 @@ import librosa
 
 from app.audio import grid as grid_fit
 from app.audio import sections as section_detect
-from app.manifests.music import Music
+from app.manifests.music import Music, Section
 
 STAGE = "music"
 
 # How far the fitted period may sit from a least-squares fit of the beats before the grid is
 # suspect. Tempo error accumulates: 1 % is half a beat across a minute, which is audible.
 PERIOD_TOLERANCE: float = 0.01
+
+# A section is "quiet" below this share of the loudest section's energy. Measured on the
+# reference track, whose three major sections sit at 0.44, 1.00 and 0.66 of the peak: the
+# opening has 36 % of headroom under this line and the section after it 67 % above.
+QUIET_SECTION_FRACTION: float = 0.6
 
 
 class GridMismatch(RuntimeError):
@@ -86,9 +91,35 @@ def validate_grid(music: Music) -> tuple[bool, str]:
     return ok, detail
 
 
-def drumless_bars(music: Music) -> int:
-    """Bars before the drums arrive. Fight material does not belong in them."""
-    event_s = drum_onset_s(music)
-    if event_s is None:
+def quiet_opening_bars(sections: list[Section]) -> int:
+    """Bars of the low-energy section, or sections, the track opens with.
+
+    Read off the section table rather than off a drum entry: a rule keyed on an instrument is a
+    rule about one arrangement, and a track may have no drums, no intro, or open at full energy
+    (`spec/006_music.md`). A track that starts loud simply has none of these bars, and the
+    preference they carry never applies.
+
+    Takes the sections rather than the whole `Music` so a check can pass the ones the EDL was
+    built from (`spec/002_manifests.md`): judging a hand-set edit against the project's current
+    analysis reports a fault that is not there.
+
+    On the reference track this returns the same six bars the drum entry marked — the opening
+    section sits at 0.44 of the loudest section's energy and the one after it at 1.00, so the
+    boundary has room on both sides.
+    """
+    structural = [s for s in sections if s.level == "major"] or list(sections)
+    if not structural:
         return 0
-    return section_detect.bar_of(music.grid.first_downbeat_s, music.grid.bar_s, event_s)
+
+    loudest = max(s.energy for s in structural)
+    if loudest <= 0:
+        return 0
+
+    bars = 0
+    # Sorted rather than assumed: this is the only reader that depends on the table's order, and
+    # the leading run is the whole question it asks.
+    for section in sorted(structural, key=lambda s: s.bar_start):
+        if section.energy > QUIET_SECTION_FRACTION * loudest:
+            break
+        bars = section.bar_end + 1
+    return bars

@@ -39,8 +39,13 @@ def edl_of(clips: list[Clip]) -> Edl:
     )
 
 
-def music_of(sections: list[Section], drum_bar: int | None = None) -> Music:
-    backends = {} if drum_bar is None else {"drum_onset_s": f"{drum_bar * BAR_S:.4f}"}
+def music_of(sections: list[Section], quiet_bars: int | None = None) -> Music:
+    if quiet_bars is not None:
+        sections = [
+            Section(name="intro", level="major", bar_start=0, bar_end=quiet_bars - 1, energy=0.5),
+            Section(name="s1", level="major", bar_start=quiet_bars, bar_end=29, energy=9.0),
+            *sections,
+        ]
     return Music(
         source="track",
         duration_s=60.0,
@@ -49,7 +54,6 @@ def music_of(sections: list[Section], drum_bar: int | None = None) -> Music:
         bars=[
             Bar(index=i, t=i * BAR_S, rms=1.0, low_energy=1.0, high_energy=0.1) for i in range(30)
         ],
-        backends=backends,
     )
 
 
@@ -188,13 +192,32 @@ def test_section_straddle_ignores_minor_boundaries():
 
 
 def test_material_match_reports_it_cannot_verify_rather_than_passing():
-    """Nothing classifies clips yet, so a pass here would be a claim nothing checked."""
-    music = music_of([], drum_bar=3)
-
-    result = qa.material_match(edl_of([clip(0), clip(2)]), music)
+    """An unclassified clip in the quiet opening is not a pass — that would claim something
+    nothing checked."""
+    result = qa.material_match(edl_of([clip(0), clip(2)]), music_of([], quiet_bars=3))
 
     assert result.status == "warn"
     assert "unclassified" in result.detail
+
+
+def test_material_match_warns_rather_than_failing_on_a_mismatch():
+    """The preference legitimately yields — no calm material in the collection, or a clip the
+    user pinned there — so a `fail` would block a reel that is doing the right thing
+    (`spec/006_music.md`, `spec/008_render.md`)."""
+    fight = clip(0)
+    fight.material = "action"
+
+    result = qa.material_match(edl_of([fight, clip(2)]), music_of([], quiet_bars=3))
+
+    assert result.status == "warn"
+    assert result.target == fight.candidate_id
+
+
+def test_material_match_has_nothing_to_protect_when_the_track_opens_loud():
+    """A track may have no quiet opening at all, and then the rule simply does not apply."""
+    sections = [Section(name="s1", level="major", bar_start=0, bar_end=29, energy=9.0)]
+
+    assert qa.material_match(edl_of([clip(0)]), music_of(sections)).status == "pass"
 
 
 def test_fade_target_names_the_clip_the_fade_lands_on():

@@ -123,17 +123,29 @@ mid-reel reads as a mistake rather than an opening gesture.
 
 ## A section holds one kind of material
 
-Material type MUST match section character, and this is checked rather than hoped for
-(`008_render.md` `material_match`).
+Material type SHOULD match section character, and where it does not, the mismatch is reported
+rather than hidden (`008_render.md` `material_match`).
 
-Concretely: **no fight clip is scheduled before the drums arrive.** The drumless intro is for
-warm-ups, walk-ons, salutes and hugs, and an action clip placed there reads as a mistake even
-when it lands exactly on a bar line.
+Concretely: **a low-energy leading section takes non-fight material** — warm-ups, walk-ons,
+salutes, hugs. An action clip there reads as a mistake even when it lands exactly on a bar
+line. "Low-energy leading section" is the general form of what one track's drumless intro is
+an instance of; it is measured from the section table, so a track that opens at full energy
+simply has no such section and the preference never applies.
+
+This is a strong preference, not a gate. It yields in two cases, both of which MUST be
+reported:
+
+- **The user pinned a clip there** (`007_review_ui.md` §4). They can hear the track and see the
+  clip; this rule is a generalisation about material and loses to a specific instruction.
+- **Nothing else can fill the slot.** A collection may hold no non-fight material at all — one
+  continuous bout, or a camera that only ran during exchanges. Truncating the reel to avoid a
+  mismatched opening trades a whole section of footage for a preference, which is the worse
+  deal. The mismatch is a `warn`; the missing footage would be invisible.
 
 Where material is known, prefer it over material nothing could classify: `unknown` winning a
 quiet slot on score is how a lunge ends up under a still chord.
 
-Within the intro and the coda, order candidates by **how unlike an exchange they are**, not by
+Within a low-energy section, order candidates by **how unlike an exchange they are**, not by
 score. The composite score ranks fencing quality, and using it here picks the most watchable
 of the calm clips — which on real footage means fencing at long measure, since holding a
 distance is precisely what makes a window read as calm. Fewest fighters on camera is the
@@ -142,15 +154,28 @@ strongest available evidence that nothing is being fought.
 ## Mapping rules for the director
 
 These are the rules that worked, recorded here because they are musical judgements rather
-than derivable facts:
+than derivable facts. Every one is expressed over the section table and the bar grid, so a
+track without drums, without an intro, or without a discernible outro simply has fewer of them
+apply — none of them may be keyed on an instrument being present.
 
-- Drumless intro → non-fight material: warm-ups, walk-ons, salutes, hugs. It is the only
-  place that material works.
-- The drop (drums in) → the single most explosive clip.
+- A low-energy leading section → non-fight material: warm-ups, walk-ons, salutes, hugs.
+- The first high-energy section → the single most explosive clip.
 - A harmonic shift → start a new run of clips.
 - The densest bars → the finale.
-- Outro (drums out) → one coda clip with a video fade, never the finale.
+- A low-energy trailing section → one coda clip with a video fade, never the finale.
 - Within a section, order for build; land the highest-scoring clip's halt on the section's
   first downbeat.
 - Match section arousal to clip peak activity: high-arousal sections get the explosive
   material, low-arousal sections get the calm material.
+
+All of these are preferences. When the footage cannot satisfy one — no calm material, fewer
+clips than the track has slots — the reel is still built and the unmet preference is reported.
+A reel that stops early is the one outcome the user cannot inspect.
+
+## When the footage runs out before the track does
+
+The reel ends on its last clip rather than looping or padding, and the fade covers that clip:
+picture and music fade together, so a short reel ends deliberately instead of being cut off.
+The alternative — stretching the available clips over the whole track — would put material on
+screen for longer than it holds attention, which is the defect the whole selection stage
+exists to avoid.

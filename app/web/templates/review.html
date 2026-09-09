@@ -22,6 +22,18 @@
     <span><kbd>3</kbd> keep</span>
     <span><kbd>J</kbd>/<kbd>K</kbd> move</span>
   </div>
+  <fieldset class="modes">
+    <legend>ordering</legend>
+    {% for value, label, hint in [
+      ("auto", "Agent's call", "the director decides the whole order"),
+      ("strict", "Sequence", "drag the clips you care about into an explicit order"),
+      ("weighted", "Weights", "0 opens the reel, 100 closes it; equal weights go together")
+    ] %}
+    <label title="{{ hint }}">
+      <input type="radio" name="order-mode" value="{{ value }}"> {{ label }}
+    </label>
+    {% endfor %}
+  </fieldset>
   <div>
     <button id="complete" class="complete" {% if completed %}disabled{% endif %}>
       {% if completed %}marked done{% else %}mark done{% endif %}
@@ -31,6 +43,16 @@
 </header>
 
 <p id="status" class="status" hidden></p>
+
+<section id="sequence" hidden>
+  <h2>Sequence</h2>
+  <p class="muted small">
+    In reel order. Drag to rearrange, or <kbd>Alt</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd> on a focused
+    entry. The director fills whatever you leave out.
+  </p>
+  <ol id="sequence-list"></ol>
+  <p id="sequence-empty" class="muted small">Nothing pinned yet — use “add to sequence” on a card.</p>
+</section>
 
 <main id="grid">
   {% for card in usable %}
@@ -78,6 +100,21 @@
       <button class="reset-trim">reset</button>
     </details>
 
+    <div class="order strict-only" hidden>
+      <button class="pin">add to sequence</button>
+      <span class="pin-at muted"></span>
+    </div>
+
+    <div class="order weighted-only" hidden>
+      <label>position
+        <input type="range" class="weight" min="0" max="100" step="5" value="50">
+      </label>
+      <span class="weight-readout muted">agent's call</span>
+      <button class="send-start" title="weight 0">start</button>
+      <button class="send-end" title="weight 100">end</button>
+      <button class="clear-weight">clear</button>
+    </div>
+
     <label class="note">note
       <input type="text" class="note-input" value="{{ card.note }}"
              placeholder="e.g. same setup as c012">
@@ -111,6 +148,9 @@
 </details>
 {% endif %}
 
+{# `<` escaped rather than trusted: JSON does not escape it, so a `</script>` inside any string
+   would close this block and the rest would be parsed as markup. #}
+<script type="application/json" id="order-state">{{ order|replace("<", "\\u003c")|safe }}</script>
 <script src="/static/review.js"></script>
 </body>
 </html>

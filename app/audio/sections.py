@@ -229,7 +229,3 @@ def low_band_onset(y: np.ndarray, sr: int) -> float | None:
     if len(crossings) == 0:
         return float(times[min(peak + window, len(times) - 1)])
     return float(times[search_from + int(crossings[0])])
-
-
-def bar_of(grid_first_downbeat_s: float, bar_s: float, t: float) -> int:
-    return max(0, int(round((t - grid_first_downbeat_s) / bar_s)))

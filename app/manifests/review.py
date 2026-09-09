@@ -24,18 +24,26 @@ class Trim(BaseModel):
     end: float
 
 
-class Order(BaseModel):
-    """Ordering hints (`spec/002_manifests.md`).
+Mode = Literal["auto", "strict", "weighted"]
 
-    Carried but not yet acted on: the drag-to-sequence UI and the director side that makes a
-    pinned position binding arrive with WAL 3.2. Present now because the field is part of the
-    documented manifest, and a `review.json` that names it must not make the project
-    unopenable. `hlreel run` says when hints are set and ignored, so no pin fails silently.
+# The ends of the weight axis. A weight says where along the reel a clip goes, low first
+# (`spec/007_review_ui.md`); it is not a score and has nothing to do with the scoring weights in
+# `project.json`.
+WEIGHT_MIN: float = 0.0
+WEIGHT_MAX: float = 100.0
+
+
+class Order(BaseModel):
+    """How the user wants the reel ordered (`spec/002_manifests.md`).
+
+    Order only — never a bar or a second. Which bars a clip occupies follows from the slot plan
+    and the music grid, so a user-facing position that meant a bar index would silently point at
+    a different clip whenever the music analysis changed.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    mode: Literal["auto", "strict", "weighted"] = "auto"
+    mode: Mode = "auto"
     sequence: list[str] = Field(default_factory=list)
     opening: list[str] = Field(default_factory=list)
     ending: list[str] = Field(default_factory=list)
@@ -73,19 +81,27 @@ def trim_for(review: Review, candidate_id: str) -> Trim | None:
     return review.trims.get(candidate_id)
 
 
-def ordering_hints(review: Review) -> list[str]:
-    """Which parts of `review.json.order` ask for something, in the user's words.
+def effective_weights(order: Order) -> dict[str, float]:
+    """Position weights with the opening and ending buckets folded in.
 
-    Empty for the default `auto` with nothing pinned, which is what an untouched project has.
+    The buckets are shorthand for the two ends of the axis, so the page can offer "send to the
+    start" next to the slider without a second concept underneath it. An explicit weight wins
+    over a bucket, being the more specific statement of the same thing.
     """
-    named = [
-        f"{len(getattr(review.order, field))} {field}"
-        for field in ("sequence", "opening", "ending", "weights")
-        if getattr(review.order, field)
-    ]
-    if review.order.mode != "auto":
-        named.insert(0, f"mode {review.order.mode}")
-    return named
+    return {
+        **dict.fromkeys(order.opening, WEIGHT_MIN),
+        **dict.fromkeys(order.ending, WEIGHT_MAX),
+        **order.weights,
+    }
+
+
+def pins(order: Order) -> list[str]:
+    """Every candidate the user gave a position, in whichever way the mode uses."""
+    if order.mode == "strict":
+        return list(dict.fromkeys(order.sequence))
+    if order.mode == "weighted":
+        return list(effective_weights(order))
+    return []
 
 
 def touched(review: Review) -> int:
